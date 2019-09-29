@@ -21,6 +21,10 @@ impl Camera {
         Self { sender }
     }
 
+    /// Starts a TCP listener to receive data from the camera. This supports
+    /// multiple connections, though multiple connections aren't handled
+    /// correctly at the moment.
+    ///
     pub fn start(mut self, ip: SocketAddr) -> io::Result<()> {
         let listener = TcpListener::bind(&ip).unwrap();
         for stream in listener.incoming() {
@@ -29,6 +33,13 @@ impl Camera {
         Ok(())
     }
 
+    /// Receives bytes and decodes them to bytes. This function makes a couple
+    /// of assumptions:
+    ///
+    /// 1. This function assumes the data format of the Raspberry Pi Camera
+    ///    (which is a u32 containing the data length followed by n bytes).
+    /// 2. The data is assumed to be MJPEG.
+    ///
     pub fn handle_image_stream(
         &mut self,
         mut stream: TcpStream,
