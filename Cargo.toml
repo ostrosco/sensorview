@@ -1,5 +1,5 @@
 [package]
-name = "rc_car"
+name = "sensorview"
 version = "0.1.0"
 authors = ["ostrosco"]
 edition = "2018"
