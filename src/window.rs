@@ -137,7 +137,7 @@ impl SensorWindow {
             // Once all the sensor windows are created and update them, we can
             // now draw them to the screen and start another iteration.
             let mut target = display.draw();
-            target.clear_color_srgb(0.8, 0.8, 0.8, 1.0);
+            target.clear_color_srgb(0.211, 0.223, 0.243, 1.0);
             platform.prepare_render(&ui, &window);
             let draw_data = ui.render();
             renderer
