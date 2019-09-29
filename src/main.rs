@@ -1,24 +1,24 @@
-use byteorder::{LittleEndian, ReadBytesExt};
-use glium::glutin;
+use crate::camera::CameraData;
+use crossbeam::{unbounded, Receiver};
+use glium::glutin::{self, Event, WindowEvent};
 use glium::{
     backend::Facade,
-    texture::{ClientFormat, PixelValue, RawImage2d},
+    texture::{ClientFormat, RawImage2d},
     Texture2d,
 };
 use glium::{Display, Surface};
-use image::jpeg::JPEGDecoder;
-use image::ImageDecoder;
 use imgui::{
-    self, im_str, Condition, Context, FontConfig, FontSource, Image, Window,
+    self, im_str, Condition, Context, FontConfig, FontSource, Image, TextureId,
+    Ui, Window,
 };
 use imgui_glium_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use std::borrow::Cow;
-use std::io::{self, Cursor, Read};
-use std::net::{TcpListener, TcpStream};
+use std::io;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 use std::thread;
+
+mod camera;
 
 pub struct System {
     pub events_loop: glutin::EventsLoop,
@@ -78,91 +78,55 @@ fn init() -> System {
     }
 }
 
-struct SensorData<'a, T>
-where
-    T: Clone + PixelValue,
-{
-    camera: Option<RawImage2d<'a, T>>,
+struct SensorData {
+    camera: Option<Receiver<CameraData>>,
 }
 
-impl<'a, T> SensorData<'a, T>
-where
-    T: Clone + PixelValue,
-{
+impl SensorData {
     pub fn new() -> Self {
         Self { camera: None }
     }
 }
 
-fn handle_image_stream<'a>(
-    mut stream: TcpStream,
-    sensor_data: Arc<Mutex<SensorData<'a, u8>>>,
-) -> io::Result<()> {
-    loop {
-        let size = stream.read_u32::<LittleEndian>()? as usize;
-        let mut bytes = vec![0; size];
-        stream.read_exact(&mut bytes[..])?;
-        let bytes = Cursor::new(bytes);
-        let decoder = JPEGDecoder::new(bytes).expect("Couldn't make decoder");
-        let (width, height) = decoder.dimensions();
-        let image = decoder.read_image().expect("Couldn't read image");
-        let raw = RawImage2d {
-            data: Cow::Owned(image),
-            width: width as u32,
-            height: height as u32,
-            format: ClientFormat::U8U8U8,
-        };
-        let mut sensor_data = sensor_data.lock().unwrap();
-        sensor_data.camera = Some(raw);
-    }
-}
-
-fn render<'a>(sensor_data: Arc<Mutex<SensorData<'a, u8>>>) {
+fn render(mut sensor_data: SensorData) {
     let System {
+        mut events_loop,
         display,
         mut imgui,
-        platform,
+        mut platform,
         mut renderer,
         ..
     } = init();
 
     let gl_window = display.gl_window();
     let window = gl_window.window();
-    let camera_enabled = true;
-    let mut cam_tex_id = None;
+    let mut texture_id = None;
+    let mut run = true;
 
-    loop {
+    while run {
+        events_loop.poll_events(|event| {
+            platform.handle_event(imgui.io_mut(), &window, &event);
+
+            if let Event::WindowEvent { event, .. } = event {
+                if let WindowEvent::CloseRequested = event {
+                    run = false;
+                }
+            }
+        });
+
         let io = imgui.io_mut();
         platform
             .prepare_frame(io, &window)
             .expect("Failed to start frame.");
         let ui = imgui.frame();
-
-        if camera_enabled {
-            let camera;
-            {
-                let mut sensor_data = sensor_data.lock().unwrap();
-                camera = sensor_data.camera.take();
-            }
-            if let Some(cam) = camera {
-                let gl_texture = Texture2d::new(display.get_context(), cam)
-                    .expect("Couldn't create new texture");
-                if let Some(tex_id) = cam_tex_id {
-                    renderer.textures().replace(tex_id, Rc::new(gl_texture));
-                } else {
-                    cam_tex_id =
-                        Some(renderer.textures().insert(Rc::new(gl_texture)));
-                }
-            }
-
-            if let Some(tex_id) = cam_tex_id {
-                Window::new(im_str!("Camera"))
-                    .size([800.0, 600.0], Condition::FirstUseEver)
-                    .build(&ui, || {
-                        ui.text(im_str!("Camera"));
-                        Image::new(tex_id, [640.0, 480.0]).build(&ui);
-                    });
-            }
+        if let Some(ref mut camera) = sensor_data.camera {
+            render_camera(
+                &ui,
+                &display,
+                &mut renderer,
+                &camera.try_recv().ok(),
+                &mut texture_id,
+            );
         }
 
         let mut target = display.draw();
@@ -176,15 +140,51 @@ fn render<'a>(sensor_data: Arc<Mutex<SensorData<'a, u8>>>) {
     }
 }
 
-fn main() -> io::Result<()> {
-    let sensor_data = Arc::new(Mutex::new(SensorData::new()));
-    let sensor_render = sensor_data.clone();
-    thread::spawn(move || {
-        render(sensor_render);
-    });
-    let listener = TcpListener::bind("0.0.0.0:8001")?;
-    for stream in listener.incoming() {
-        handle_image_stream(stream?, sensor_data.clone())?;
+pub fn render_camera(
+    ui: &Ui,
+    display: &Display,
+    renderer: &mut Renderer,
+    camera_data: &Option<CameraData>,
+    texture_id: &mut Option<TextureId>,
+) {
+    if let Some(camera_data) = camera_data {
+        let image_frame = Some(RawImage2d {
+            data: Cow::Owned(camera_data.image_bytes.clone()),
+            width: camera_data.width as u32,
+            height: camera_data.height as u32,
+            format: ClientFormat::U8U8U8,
+        })
+        .unwrap();
+        let gl_texture = Texture2d::new(display.get_context(), image_frame)
+            .expect("Couldn't create new texture");
+        if let Some(tex_id) = texture_id {
+            renderer.textures().replace(*tex_id, Rc::new(gl_texture));
+        } else {
+            *texture_id = Some(renderer.textures().insert(Rc::new(gl_texture)));
+        }
     }
+
+    if let Some(tex_id) = texture_id {
+        Window::new(im_str!("Camera"))
+            .size([800.0, 600.0], Condition::FirstUseEver)
+            .build(ui, || {
+                ui.text(im_str!("Camera"));
+                Image::new(*tex_id, [640.0, 480.0]).build(&ui);
+            });
+    }
+}
+
+fn main() -> io::Result<()> {
+    let (camera_tx, camera_rx) = unbounded();
+    let mut sensor_data = SensorData::new();
+    sensor_data.camera = Some(camera_rx);
+
+    thread::spawn(move || -> io::Result<()> {
+        let camera = camera::Camera::new(camera_tx);
+        camera.start("0.0.0.0:8001".parse().unwrap())?;
+        Ok(())
+    });
+
+    render(sensor_data);
     Ok(())
 }
