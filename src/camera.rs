@@ -2,6 +2,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use crossbeam::channel::Sender;
 use image::jpeg::JPEGDecoder;
 use image::ImageDecoder;
+use imgui::TextureId;
 use std::io::{self, Cursor, Read};
 use std::net::SocketAddr;
 use std::net::{TcpListener, TcpStream};
@@ -14,6 +15,13 @@ pub struct CameraData {
     pub image_bytes: Vec<u8>,
     pub width: u32,
     pub height: u32,
+}
+
+pub struct CameraSettings {
+    pub rotation: u8,
+    pub window_width: f32,
+    pub window_height: f32,
+    pub texture_id: Option<TextureId>,
 }
 
 impl Camera {

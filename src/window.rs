@@ -1,4 +1,4 @@
-use crate::camera::CameraData;
+use crate::camera::{CameraData, CameraSettings};
 use crossbeam::Receiver;
 use glium::glutin::{self, Event, WindowEvent};
 use glium::{
@@ -7,10 +7,7 @@ use glium::{
     Texture2d,
 };
 use glium::{Display, Surface};
-use imgui::{
-    self, im_str, Condition, Context, FontConfig, FontSource, Image, TextureId,
-    Ui, Window,
-};
+use imgui::{self, im_str, Context, FontConfig, FontSource, Image, Ui, Window};
 use imgui_glium_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use std::borrow::Cow;
@@ -100,8 +97,13 @@ impl SensorWindow {
         } = self;
         let gl_window = display.gl_window();
         let window = gl_window.window();
-        let mut texture_id = None;
         let mut run = true;
+        let mut camera_settings = CameraSettings {
+            rotation: 0,
+            window_width: 0.0,
+            window_height: 0.0,
+            texture_id: None,
+        };
 
         while run {
             // Handle any close events for the window.
@@ -130,7 +132,7 @@ impl SensorWindow {
                     &display,
                     &mut renderer,
                     &camera.try_recv().ok(),
-                    &mut texture_id,
+                    &mut camera_settings,
                 );
             }
 
@@ -154,7 +156,7 @@ impl SensorWindow {
         display: &Display,
         renderer: &mut Renderer,
         camera_data: &Option<CameraData>,
-        texture_id: &mut Option<TextureId>,
+        camera_settings: &mut CameraSettings,
     ) {
         // If we've received new camera data, update the texture. We also need
         // to check if there is an existing texture ahead of time so we can
@@ -167,12 +169,14 @@ impl SensorWindow {
                 format: ClientFormat::U8U8U8,
             })
             .unwrap();
+            camera_settings.window_width = camera_data.width as f32;
+            camera_settings.window_height = camera_data.height as f32;
             let gl_texture = Texture2d::new(display.get_context(), image_frame)
                 .expect("Couldn't create new texture");
-            if let Some(tex_id) = texture_id {
-                renderer.textures().replace(*tex_id, Rc::new(gl_texture));
+            if let Some(tex_id) = camera_settings.texture_id {
+                renderer.textures().replace(tex_id, Rc::new(gl_texture));
             } else {
-                *texture_id =
+                camera_settings.texture_id =
                     Some(renderer.textures().insert(Rc::new(gl_texture)));
             }
         }
@@ -181,15 +185,15 @@ impl SensorWindow {
         // sure we draw the window even if we didn't receive camera data on
         // this iteration. However, we currently do not draw a window unless
         // we've received our first sample from the camera.
-        if let Some(tex_id) = texture_id {
-            Window::new(im_str!("Camera"))
-                .size([800.0, 600.0], Condition::FirstUseEver)
-                .build(ui, || {
-                    Image::new(*tex_id, [640.0, 480.0])
-                        .uv0([1.0, 1.0])
-                        .uv1([0.0, 0.0])
-                        .build(&ui);
-                });
+        if let Some(tex_id) = camera_settings.texture_id {
+            let camera_dims =
+                [camera_settings.window_width, camera_settings.window_height];
+            Window::new(im_str!("Camera")).build(ui, || {
+                Image::new(tex_id, camera_dims)
+                    .uv0([1.0, 1.0])
+                    .uv1([0.0, 0.0])
+                    .build(&ui);
+            });
         }
     }
 }
