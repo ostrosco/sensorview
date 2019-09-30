@@ -185,8 +185,10 @@ impl SensorWindow {
             Window::new(im_str!("Camera"))
                 .size([800.0, 600.0], Condition::FirstUseEver)
                 .build(ui, || {
-                    ui.text(im_str!("Camera"));
-                    Image::new(*tex_id, [640.0, 480.0]).build(&ui);
+                    Image::new(*tex_id, [640.0, 480.0])
+                        .uv0([1.0, 1.0])
+                        .uv1([0.0, 0.0])
+                        .build(&ui);
                 });
         }
     }
