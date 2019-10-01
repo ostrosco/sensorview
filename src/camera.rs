@@ -1,6 +1,6 @@
-use byteorder::{LittleEndian, ReadBytesExt};
-use crossbeam::channel::{Sender, Receiver};
 use crate::window::Renderable;
+use byteorder::{LittleEndian, ReadBytesExt};
+use crossbeam::channel::{Receiver, Sender};
 use glium::Display;
 use glium::{
     backend::Facade,
@@ -99,7 +99,6 @@ impl CameraWindow {
     }
 }
 
-
 impl Renderable for CameraWindow {
     type Item = CameraData;
 
@@ -115,7 +114,7 @@ impl Renderable for CameraWindow {
         // If we've received new camera data, update the texture. We also need
         // to check if there is an existing texture ahead of time so we can
         // reuse the texture instead of creating a new one each time.
-        if let Some(camera_data) = receiver.try_recv().ok() {
+        if let Ok(camera_data) = receiver.try_recv() {
             let image_frame = Some(RawImage2d {
                 data: Cow::Owned(camera_data.image_bytes.clone()),
                 width: camera_data.width as u32,

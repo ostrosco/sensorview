@@ -12,8 +12,13 @@ use imgui_winit_support::{HiDpiMode, WinitPlatform};
 pub trait Renderable {
     type Item;
 
-    fn render(&mut self, ui: &Ui, display: &Display, renderer: &mut Renderer,
-              receiver: &mut Receiver<Self::Item>);
+    fn render(
+        &mut self,
+        ui: &Ui,
+        display: &Display,
+        renderer: &mut Renderer,
+        receiver: &mut Receiver<Self::Item>,
+    );
 }
 
 /// A list of receivers for sensor data. Currently we can only receive Camera
@@ -42,7 +47,6 @@ impl SensorWindow {
     pub fn new() -> Self {
         let events_loop = glutin::EventsLoop::new();
         let context = glutin::ContextBuilder::new().with_vsync(true);
-
 
         // TODO: Query screen resolution so the window size isn't hardcoded.
         let builder = glutin::WindowBuilder::new()
@@ -126,18 +130,13 @@ impl SensorWindow {
                 .expect("Failed to start frame.");
             let ui = imgui.frame();
 
-            // Check for camera data if there is a receiver set up. 
+            // Check for camera data if there is a receiver set up.
             //
             // TODO: Currently this assumes that there is only one camera
             // sensor. This should allow an arbitrary number of sensors of
             // any type.
             if let Some(ref mut camera) = sensor_data.camera {
-                camera_window.render(
-                    &ui,
-                    &display,
-                    &mut renderer,
-                    camera,
-                );
+                camera_window.render(&ui, &display, &mut renderer, camera);
             }
 
             // Once all the sensor windows are created and update them, we can
