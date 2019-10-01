@@ -1,18 +1,23 @@
-use crate::camera::{CameraData, CameraSettings};
+use crate::camera::{CameraData, CameraWindow};
 use crossbeam::Receiver;
 use glium::glutin::{self, Event, WindowEvent};
-use glium::{
-    backend::Facade,
-    texture::{ClientFormat, RawImage2d},
-    Texture2d,
-};
 use glium::{Display, Surface};
-use imgui::{self, im_str, Context, FontConfig, FontSource, Image, Ui, Window};
+use imgui::{self, Context, FontConfig, FontSource, Ui};
 use imgui_glium_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
-use std::borrow::Cow;
-use std::rc::Rc;
 
+/// A trait for sensor windows so that eventually the main window can simply
+/// keep a list of all active sensor windows and update them without having
+/// to care about the types of sensors.
+pub trait Renderable {
+    type Item;
+
+    fn render(&mut self, ui: &Ui, display: &Display, renderer: &mut Renderer,
+              receiver: &mut Receiver<Self::Item>);
+}
+
+/// A list of receivers for sensor data. Currently we can only receive Camera
+/// information.
 pub struct SensorData {
     pub camera: Option<Receiver<CameraData>>,
 }
@@ -33,10 +38,13 @@ pub struct SensorWindow {
 }
 
 impl SensorWindow {
-    /// Initializes the window for displaying multiple sensors.
+    /// Initializes a blank window for displaying multiple sensor windows
     pub fn new() -> Self {
         let events_loop = glutin::EventsLoop::new();
         let context = glutin::ContextBuilder::new().with_vsync(true);
+
+
+        // TODO: Query screen resolution so the window size isn't hardcoded.
         let builder = glutin::WindowBuilder::new()
             .with_dimensions(glutin::dpi::LogicalSize::new(1920f64, 1080f64));
         let display = Display::new(builder, context, &events_loop)
@@ -98,12 +106,7 @@ impl SensorWindow {
         let gl_window = display.gl_window();
         let window = gl_window.window();
         let mut run = true;
-        let mut camera_settings = CameraSettings {
-            rotation: 0,
-            window_width: 0.0,
-            window_height: 0.0,
-            texture_id: None,
-        };
+        let mut camera_window = CameraWindow::new();
 
         while run {
             // Handle any close events for the window.
@@ -123,16 +126,17 @@ impl SensorWindow {
                 .expect("Failed to start frame.");
             let ui = imgui.frame();
 
-            // Check for camera data if there is a receiver set up. Currently
-            // this assumes that there is only one sensor. This limitation
-            // should be lifted eventually.
+            // Check for camera data if there is a receiver set up. 
+            //
+            // TODO: Currently this assumes that there is only one camera
+            // sensor. This should allow an arbitrary number of sensors of
+            // any type.
             if let Some(ref mut camera) = sensor_data.camera {
-                SensorWindow::render_camera_window(
+                camera_window.render(
                     &ui,
                     &display,
                     &mut renderer,
-                    &camera.try_recv().ok(),
-                    &mut camera_settings,
+                    camera,
                 );
             }
 
@@ -146,54 +150,6 @@ impl SensorWindow {
                 .render(&mut target, draw_data)
                 .expect("Couldn't render");
             target.finish().expect("Failed to swap buffers");
-        }
-    }
-
-    /// Renders the data received from the camera sensor. This currently
-    /// assumes RGB data format.
-    fn render_camera_window(
-        ui: &Ui,
-        display: &Display,
-        renderer: &mut Renderer,
-        camera_data: &Option<CameraData>,
-        camera_settings: &mut CameraSettings,
-    ) {
-        // If we've received new camera data, update the texture. We also need
-        // to check if there is an existing texture ahead of time so we can
-        // reuse the texture instead of creating a new one each time.
-        if let Some(camera_data) = camera_data {
-            let image_frame = Some(RawImage2d {
-                data: Cow::Owned(camera_data.image_bytes.clone()),
-                width: camera_data.width as u32,
-                height: camera_data.height as u32,
-                format: ClientFormat::U8U8U8,
-            })
-            .unwrap();
-            camera_settings.window_width = camera_data.width as f32;
-            camera_settings.window_height = camera_data.height as f32;
-            let gl_texture = Texture2d::new(display.get_context(), image_frame)
-                .expect("Couldn't create new texture");
-            if let Some(tex_id) = camera_settings.texture_id {
-                renderer.textures().replace(tex_id, Rc::new(gl_texture));
-            } else {
-                camera_settings.texture_id =
-                    Some(renderer.textures().insert(Rc::new(gl_texture)));
-            }
-        }
-
-        // We call this each iteration of the SensorWindow, so we need to make
-        // sure we draw the window even if we didn't receive camera data on
-        // this iteration. However, we currently do not draw a window unless
-        // we've received our first sample from the camera.
-        if let Some(tex_id) = camera_settings.texture_id {
-            let camera_dims =
-                [camera_settings.window_width, camera_settings.window_height];
-            Window::new(im_str!("Camera")).build(ui, || {
-                Image::new(tex_id, camera_dims)
-                    .uv0([1.0, 1.0])
-                    .uv1([0.0, 0.0])
-                    .build(&ui);
-            });
         }
     }
 }
