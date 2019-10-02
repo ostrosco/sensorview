@@ -17,6 +17,7 @@ use std::io::{self, Cursor, Read};
 use std::net::SocketAddr;
 use std::net::{TcpListener, TcpStream};
 use std::rc::Rc;
+use std::thread::{self, JoinHandle};
 
 pub struct Camera {
     sender: Sender<CameraData>,
@@ -37,12 +38,14 @@ impl Camera {
     /// multiple connections, though multiple connections aren't handled
     /// correctly at the moment.
     ///
-    pub fn start(mut self, ip: SocketAddr) -> io::Result<()> {
-        let listener = TcpListener::bind(&ip).unwrap();
-        for stream in listener.incoming() {
-            self.handle_image_stream(stream?)?;
-        }
-        Ok(())
+    pub fn start(mut self, ip: SocketAddr) -> JoinHandle<io::Result<()>> {
+        thread::spawn(move || {
+            let listener = TcpListener::bind(&ip).unwrap();
+            for stream in listener.incoming() {
+                self.handle_image_stream(stream?)?;
+            }
+            Ok(())
+        })
     }
 
     /// Receives bytes and decodes them to bytes. This function makes a couple
@@ -86,35 +89,29 @@ pub struct CameraWindow {
     pub window_width: f32,
     pub window_height: f32,
     pub texture_id: Option<TextureId>,
+    pub receiver: Receiver<CameraData>,
 }
 
 impl CameraWindow {
-    pub fn new() -> Self {
+    pub fn new(receiver: Receiver<CameraData>) -> Self {
         Self {
             rotation: 0,
             window_width: 0.0,
             window_height: 0.0,
             texture_id: None,
+            receiver,
         }
     }
 }
 
 impl Renderable for CameraWindow {
-    type Item = CameraData;
-
     /// Renders the data received from the camera sensor. This currently
     /// assumes RGB data format.
-    fn render(
-        &mut self,
-        ui: &Ui,
-        display: &Display,
-        renderer: &mut Renderer,
-        receiver: &mut Receiver<Self::Item>,
-    ) {
+    fn render(&mut self, ui: &Ui, display: &Display, renderer: &mut Renderer) {
         // If we've received new camera data, update the texture. We also need
         // to check if there is an existing texture ahead of time so we can
         // reuse the texture instead of creating a new one each time.
-        if let Ok(camera_data) = receiver.try_recv() {
+        if let Ok(camera_data) = self.receiver.try_recv() {
             let image_frame = Some(RawImage2d {
                 data: Cow::Owned(camera_data.image_bytes.clone()),
                 width: camera_data.width as u32,
