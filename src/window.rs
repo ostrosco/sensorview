@@ -1,45 +1,28 @@
-use crate::camera::{CameraData, CameraWindow};
-use crossbeam::Receiver;
+use crate::camera::{Camera, CameraWindow};
+use crossbeam::unbounded;
 use glium::glutin::{self, Event, WindowEvent};
 use glium::{Display, Surface};
 use imgui::{self, Context, FontConfig, FontSource, Ui};
 use imgui_glium_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
+use std::io;
+use std::thread::JoinHandle;
 
 /// A trait for sensor windows so that eventually the main window can simply
 /// keep a list of all active sensor windows and update them without having
 /// to care about the types of sensors.
 pub trait Renderable {
-    type Item;
-
-    fn render(
-        &mut self,
-        ui: &Ui,
-        display: &Display,
-        renderer: &mut Renderer,
-        receiver: &mut Receiver<Self::Item>,
-    );
-}
-
-/// A list of receivers for sensor data. Currently we can only receive Camera
-/// information.
-pub struct SensorData {
-    pub camera: Option<Receiver<CameraData>>,
-}
-
-impl SensorData {
-    pub fn new() -> Self {
-        Self { camera: None }
-    }
+    fn render(&mut self, ui: &Ui, display: &Display, renderer: &mut Renderer);
 }
 
 pub struct SensorWindow {
-    pub events_loop: glutin::EventsLoop,
-    pub display: Display,
-    pub imgui: Context,
-    pub platform: WinitPlatform,
-    pub renderer: Renderer,
-    pub font_size: f32,
+    events_loop: glutin::EventsLoop,
+    display: Display,
+    imgui: Context,
+    platform: WinitPlatform,
+    renderer: Renderer,
+    sensor_windows: Vec<Box<dyn Renderable>>,
+    join_handles: Vec<JoinHandle<io::Result<()>>>,
 }
 
 impl SensorWindow {
@@ -91,26 +74,36 @@ impl SensorWindow {
             imgui,
             platform,
             renderer,
-            font_size,
+            sensor_windows: Vec::new(),
+            join_handles: Vec::new(),
         }
     }
 
     /// Starts the rendering loop for the window. This will check for
     /// any new data received from the sensors and update any windows
     /// with new information.
-    pub fn render(self, mut sensor_data: SensorData) {
+    pub fn render(self) {
         let SensorWindow {
             mut events_loop,
             mut platform,
             display,
             mut imgui,
             mut renderer,
+            mut sensor_windows,
+            mut join_handles,
             ..
         } = self;
         let gl_window = display.gl_window();
         let window = gl_window.window();
         let mut run = true;
-        let mut camera_window = CameraWindow::new();
+
+        // TODO: Right now we're manually creating a Camera window for testing
+        // but eventually windows should be created by request from the user.
+        // We need a way to create new windows from the user.
+        let (camera_tx, camera_rx) = unbounded();
+        let camera = Camera::new(camera_tx);
+        join_handles.push(camera.start("0.0.0.0:8001".parse().unwrap()));
+        sensor_windows.push(Box::new(CameraWindow::new(camera_rx)));
 
         while run {
             // Handle any close events for the window.
@@ -130,13 +123,9 @@ impl SensorWindow {
                 .expect("Failed to start frame.");
             let ui = imgui.frame();
 
-            // Check for camera data if there is a receiver set up.
-            //
-            // TODO: Currently this assumes that there is only one camera
-            // sensor. This should allow an arbitrary number of sensors of
-            // any type.
-            if let Some(ref mut camera) = sensor_data.camera {
-                camera_window.render(&ui, &display, &mut renderer, camera);
+            // Iterate over all created sensor windows and update them.
+            for sensor_window in &mut sensor_windows {
+                sensor_window.render(&ui, &display, &mut renderer);
             }
 
             // Once all the sensor windows are created and update them, we can
