@@ -2,7 +2,9 @@ use crate::camera::{Camera, CameraWindow};
 use crossbeam::unbounded;
 use glium::glutin::{self, Event, WindowEvent};
 use glium::{Display, Surface};
-use imgui::{self, Context, FontConfig, FontSource, Ui};
+use imgui::{
+    self, im_str, Context, FontConfig, FontSource, ImString, Ui, Window,
+};
 use imgui_glium_renderer::Renderer;
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use std::io;
@@ -96,14 +98,11 @@ impl SensorWindow {
         let gl_window = display.gl_window();
         let window = gl_window.window();
         let mut run = true;
+        let mut selected_sensor = 0i32;
 
         // TODO: Right now we're manually creating a Camera window for testing
         // but eventually windows should be created by request from the user.
         // We need a way to create new windows from the user.
-        let (camera_tx, camera_rx) = unbounded();
-        let camera = Camera::new(camera_tx);
-        join_handles.push(camera.start("0.0.0.0:8001".parse().unwrap()));
-        sensor_windows.push(Box::new(CameraWindow::new(camera_rx)));
 
         while run {
             // Handle any close events for the window.
@@ -122,6 +121,40 @@ impl SensorWindow {
                 .prepare_frame(io, &window)
                 .expect("Failed to start frame.");
             let ui = imgui.frame();
+
+            Window::new(im_str!("SensorView")).build(&ui, || {
+                ui.text(im_str!("Create new:"));
+                ui.list_box(
+                    im_str!(""),
+                    &mut selected_sensor,
+                    &[im_str!("Camera"), im_str!("LIDAR"), im_str!("GPS")],
+                    10,
+                );
+                match selected_sensor {
+                    0 => {
+                        let mut host_ip = ImString::with_capacity(50);
+                        ui.input_text(im_str!("Listen Address"), &mut host_ip)
+                            .build();
+                        if ui.button(
+                            im_str!("Create Sensor Window"),
+                            [50.0, 30.0],
+                        ) {
+                            let (camera_tx, camera_rx) = unbounded();
+                            let camera = Camera::new(camera_tx);
+                            join_handles.push(
+                                camera.start(
+                                    host_ip.to_string().parse().unwrap(),
+                                ),
+                            );
+                            sensor_windows
+                                .push(Box::new(CameraWindow::new(camera_rx)));
+                        }
+                    }
+                    _ => {
+                        ui.text("Not supported yet");
+                    }
+                }
+            });
 
             // Iterate over all created sensor windows and update them.
             for sensor_window in &mut sensor_windows {
