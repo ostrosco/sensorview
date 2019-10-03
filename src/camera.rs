@@ -143,6 +143,10 @@ impl Renderable for CameraWindow {
                     .uv1([0.0, 0.0])
                     .build(&ui);
             });
+        } else {
+            Window::new(im_str!("Camera")).build(ui, || {
+                ui.text(im_str!("Waiting for camera data..."));
+            });
         }
     }
 }
