@@ -25,6 +25,7 @@ pub struct SensorWindow {
     renderer: Renderer,
     sensor_windows: Vec<Box<dyn Renderable>>,
     join_handles: Vec<JoinHandle<io::Result<()>>>,
+    camera_ip: ImString,
 }
 
 impl SensorWindow {
@@ -78,6 +79,7 @@ impl SensorWindow {
             renderer,
             sensor_windows: Vec::new(),
             join_handles: Vec::new(),
+            camera_ip: ImString::with_capacity(20),
         }
     }
 
@@ -93,6 +95,7 @@ impl SensorWindow {
             mut renderer,
             mut sensor_windows,
             mut join_handles,
+            mut camera_ip,
             ..
         } = self;
         let gl_window = display.gl_window();
@@ -130,28 +133,20 @@ impl SensorWindow {
                     &[im_str!("Camera"), im_str!("LIDAR"), im_str!("GPS")],
                     10,
                 );
-                match selected_sensor {
-                    0 => {
-                        let mut host_ip = ImString::with_capacity(50);
-                        ui.input_text(im_str!("Listen Address"), &mut host_ip)
-                            .build();
-                        if ui.button(
-                            im_str!("Create Sensor Window"),
-                            [50.0, 30.0],
-                        ) {
-                            let (camera_tx, camera_rx) = unbounded();
-                            let camera = Camera::new(camera_tx);
-                            join_handles.push(
-                                camera.start(
-                                    host_ip.to_string().parse().unwrap(),
-                                ),
-                            );
-                            sensor_windows
-                                .push(Box::new(CameraWindow::new(camera_rx)));
+                SensorWindow::render_camera_modal(
+                    &ui,
+                    &mut join_handles,
+                    &mut sensor_windows,
+                    &mut camera_ip,
+                );
+                if ui.button(im_str!("Configure sensor..."), [0.0, 0.0]) {
+                    match selected_sensor {
+                        0 => {
+                            ui.open_popup(im_str!("Camera Configuration"));
                         }
-                    }
-                    _ => {
-                        ui.text("Not supported yet");
+                        _ => {
+                            ui.text("Not supported yet");
+                        }
                     }
                 }
             });
@@ -172,5 +167,31 @@ impl SensorWindow {
                 .expect("Couldn't render");
             target.finish().expect("Failed to swap buffers");
         }
+    }
+
+    fn render_camera_modal(
+        ui: &Ui,
+        join_handles: &mut Vec<JoinHandle<io::Result<()>>>,
+        sensor_windows: &mut Vec<Box<dyn Renderable>>,
+        camera_ip: &mut ImString,
+    ) {
+        ui.popup_modal(im_str!("Camera Configuration")).build(|| {
+            ui.input_text(im_str!("Listen Address"), camera_ip)
+                .build();
+            if ui.button(im_str!("Create Sensor Window"), [0.0, 0.0]) {
+                let (camera_tx, camera_rx) = unbounded();
+                let camera = Camera::new(camera_tx);
+                join_handles.push(
+                    camera.start(
+                        camera_ip
+                            .to_string()
+                            .parse()
+                            .expect("couldn't parse IP address"),
+                    ),
+                );
+                sensor_windows.push(Box::new(CameraWindow::new(camera_rx)));
+                ui.close_current_popup();
+            }
+        });
     }
 }
