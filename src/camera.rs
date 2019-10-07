@@ -1,6 +1,6 @@
 use crate::window::Renderable;
 use byteorder::{LittleEndian, ReadBytesExt};
-use crossbeam::channel::{Receiver, Sender};
+use crossbeam::channel::{unbounded, Receiver, Sender};
 use glium::Display;
 use glium::{
     backend::Facade,
@@ -10,7 +10,7 @@ use glium::{
 use image::jpeg::JPEGDecoder;
 use image::ImageDecoder;
 use imgui::TextureId;
-use imgui::{self, im_str, Image, Ui, Window};
+use imgui::{self, im_str, ImString, Image, Ui, Window, WindowFlags};
 use imgui_glium_renderer::Renderer;
 use std::borrow::Cow;
 use std::io::{self, Cursor, Read};
@@ -137,16 +137,56 @@ impl Renderable for CameraWindow {
         // we've received our first sample from the camera.
         if let Some(tex_id) = self.texture_id {
             let camera_dims = [self.window_width, self.window_height];
-            Window::new(im_str!("Camera")).build(ui, || {
-                Image::new(tex_id, camera_dims)
-                    .uv0([1.0, 1.0])
-                    .uv1([0.0, 0.0])
-                    .build(&ui);
-            });
+            Window::new(im_str!("Camera"))
+                .flags(WindowFlags::ALWAYS_AUTO_RESIZE)
+                .build(ui, || {
+                    Image::new(tex_id, camera_dims)
+                        .uv0([1.0, 1.0])
+                        .uv1([0.0, 0.0])
+                        .build(&ui);
+                });
         } else {
             Window::new(im_str!("Camera")).build(ui, || {
                 ui.text(im_str!("Waiting for camera data..."));
             });
         }
+    }
+}
+
+pub struct CameraConfig {
+    camera_ip: ImString,
+}
+
+impl CameraConfig {
+    pub fn new() -> Self {
+        Self {
+            camera_ip: ImString::with_capacity(20),
+        }
+    }
+
+    pub fn render_camera_modal(
+        &mut self,
+        ui: &Ui,
+        join_handles: &mut Vec<JoinHandle<io::Result<()>>>,
+        sensor_windows: &mut Vec<Box<dyn Renderable>>,
+    ) {
+        ui.popup_modal(im_str!("Camera Configuration")).build(|| {
+            ui.input_text(im_str!("Listen Address"), &mut self.camera_ip)
+                .build();
+            if ui.button(im_str!("Create Sensor Window"), [0.0, 0.0]) {
+                let (camera_tx, camera_rx) = unbounded();
+                let camera = Camera::new(camera_tx);
+                join_handles.push(
+                    camera.start(
+                        self.camera_ip
+                            .to_string()
+                            .parse()
+                            .expect("couldn't parse IP address"),
+                    ),
+                );
+                sensor_windows.push(Box::new(CameraWindow::new(camera_rx)));
+                ui.close_current_popup();
+            }
+        });
     }
 }
