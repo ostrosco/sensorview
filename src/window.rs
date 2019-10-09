@@ -1,4 +1,5 @@
 use crate::camera::CameraConfig;
+use crate::lidar::LidarConfig;
 use glium::glutin::{self, Event, WindowEvent};
 use glium::{Display, Surface};
 use imgui::{self, im_str, Context, FontConfig, FontSource, Ui, Window};
@@ -23,6 +24,7 @@ pub struct SensorWindow {
     sensor_windows: Vec<Box<dyn Renderable>>,
     join_handles: Vec<JoinHandle<io::Result<()>>>,
     camera_config: CameraConfig,
+    lidar_config: LidarConfig,
 }
 
 impl SensorWindow {
@@ -77,6 +79,7 @@ impl SensorWindow {
             sensor_windows: Vec::new(),
             join_handles: Vec::new(),
             camera_config: CameraConfig::new(),
+            lidar_config: LidarConfig::new(),
         }
     }
 
@@ -93,6 +96,7 @@ impl SensorWindow {
             mut sensor_windows,
             mut join_handles,
             mut camera_config,
+            mut lidar_config,
             ..
         } = self;
         let gl_window = display.gl_window();
@@ -135,10 +139,18 @@ impl SensorWindow {
                     &mut join_handles,
                     &mut sensor_windows,
                 );
+                lidar_config.render_lidar_modal(
+                    &ui,
+                    &mut join_handles,
+                    &mut sensor_windows,
+                );
                 if ui.button(im_str!("Configure sensor..."), [0.0, 0.0]) {
                     match selected_sensor {
                         0 => {
                             ui.open_popup(im_str!("Camera Configuration"));
+                        }
+                        1 => {
+                            ui.open_popup(im_str!("LIDAR Configuration"));
                         }
                         _ => {
                             ui.text("Not supported yet");
