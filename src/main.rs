@@ -1,4 +1,5 @@
 mod camera;
+mod lidar;
 mod window;
 
 use std::io;
