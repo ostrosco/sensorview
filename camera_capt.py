@@ -1,4 +1,5 @@
 import io
+import math
 import socket
 import struct
 import time
@@ -30,10 +31,9 @@ connection = client_socket.makefile('wb')
 try:
     output = SplitFrames(connection)
     with picamera.PiCamera(resolution='VGA', framerate=30) as camera:
-        time.sleep(2)
         start = time.time()
         camera.start_recording(output, format='mjpeg')
-        camera.wait_recording(30)
+        camera.wait_recording(float("inf"))
         camera.stop_recording()
         # Write the terminating 0-length to the connection to let the
         # server know we're done
