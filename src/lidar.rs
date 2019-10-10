@@ -1,5 +1,5 @@
 use crate::window::Renderable;
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
 use crossbeam::{unbounded, Receiver, Sender};
 use glium::Display;
 use glium::{
@@ -7,19 +7,17 @@ use glium::{
     texture::{ClientFormat, RawImage2d},
     Texture2d,
 };
+use image::{Rgb, RgbImage};
+use imageproc::drawing::draw_filled_circle_mut;
 use imgui::TextureId;
 use imgui::{self, im_str, ImString, Image, Ui, Window, WindowFlags};
 use imgui_glium_renderer::Renderer;
-use image::{Rgb, RgbImage};
-use imageproc::drawing::{draw_filled_circle_mut};
+use std::borrow::Cow;
+use std::f32::consts::PI;
 use std::io;
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::thread::{self, JoinHandle};
-use std::f32::consts::PI;
-use std::borrow::Cow;
 use std::rc::Rc;
-use std::time::Instant;
-
+use std::thread::{self, JoinHandle};
 
 pub struct LidarData {
     distances: Vec<f32>,
@@ -54,8 +52,10 @@ impl Lidar {
     ) -> io::Result<()> {
         loop {
             let mut distances = [0f32; 360];
-            stream.read_f32_into::<BigEndian>(&mut distances)?;
-            let lidar_data = LidarData { distances: distances.to_vec() };
+            stream.read_f32_into::<LittleEndian>(&mut distances)?;
+            let lidar_data = LidarData {
+                distances: distances.to_vec(),
+            };
             self.sender.send(lidar_data).map_err(|_| {
                 io::Error::new(
                     io::ErrorKind::ConnectionAborted,
@@ -84,21 +84,29 @@ impl LidarWindow {
 
 impl Renderable for LidarWindow {
     fn render(&mut self, ui: &Ui, display: &Display, renderer: &mut Renderer) {
-        let timer = Instant::now();
+        // TODO: right now the scale factor is static to make it work. In the
+        // future, we should figure out a better way to handle the scale better.
+        let scale = 0.03;
+        let image_dim = 400.0;
         if let Ok(lidar_data) = self.receiver.try_recv() {
             self.lidar_data = lidar_data.distances;
-            let mut image = RgbImage::new(400, 400);
+            let mut image = RgbImage::new(image_dim as u32, image_dim as u32);
             let color = Rgb([255u8, 0u8, 0u8]);
             for (angle, distance) in self.lidar_data.iter().enumerate() {
                 let angle = angle as f32 * PI / 180.0;
-                let x = distance * angle.cos();
-                let y = distance * angle.sin();
-                draw_filled_circle_mut(&mut image, (x as i32, y as i32), 2, color);
+                let x = scale * distance * angle.cos() + image_dim / 2.0;
+                let y = image_dim / 2.0 - (distance * angle.sin()) * scale;
+                draw_filled_circle_mut(
+                    &mut image,
+                    (x as i32, y as i32),
+                    2,
+                    color,
+                );
             }
             let image_frame = Some(RawImage2d {
                 data: Cow::Owned(image.into_vec()),
-                width: 400,
-                height: 400,
+                width: image_dim as u32,
+                height: image_dim as u32,
                 format: ClientFormat::U8U8U8,
             })
             .unwrap();
@@ -116,14 +124,12 @@ impl Renderable for LidarWindow {
         // sure we draw the window even if we didn't receive LIDAR data on
         // this iteration. However, we currently do not draw a window unless
         // we've received our first sample from the LIDAR.
-        println!("Elapsed time: {}", timer.elapsed().as_micros());
         if let Some(tex_id) = self.texture_id {
-            let image_dims = [400.0, 400.0];
+            let image_dims = [image_dim, image_dim];
             Window::new(im_str!("LIDAR"))
                 .flags(WindowFlags::ALWAYS_AUTO_RESIZE)
                 .build(ui, || {
-                    Image::new(tex_id, image_dims)
-                        .build(&ui);
+                    Image::new(tex_id, image_dims).build(&ui);
                 });
         } else {
             Window::new(im_str!("LIDAR")).build(ui, || {
@@ -139,9 +145,9 @@ pub struct LidarConfig {
 
 impl LidarConfig {
     pub fn new() -> Self {
-        Self {
-            lidar_ip: ImString::with_capacity(20),
-        }
+        let mut lidar_ip = ImString::new("0.0.0.0:8002");
+        lidar_ip.reserve_exact(10);
+        Self { lidar_ip }
     }
 
     pub fn render_lidar_modal(

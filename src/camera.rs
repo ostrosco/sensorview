@@ -159,9 +159,9 @@ pub struct CameraConfig {
 
 impl CameraConfig {
     pub fn new() -> Self {
-        Self {
-            camera_ip: ImString::with_capacity(20),
-        }
+        let mut camera_ip = ImString::new("0.0.0.0:8001");
+        camera_ip.reserve_exact(10);
+        Self { camera_ip }
     }
 
     pub fn render_camera_modal(
