@@ -1,4 +1,5 @@
 use crate::camera::CameraConfig;
+use crate::gps::GPSConfig;
 use crate::lidar::LidarConfig;
 use glium::glutin::{self, Event, WindowEvent};
 use glium::{Display, Surface};
@@ -15,6 +16,15 @@ pub trait Renderable {
     fn render(&mut self, ui: &Ui, display: &Display, renderer: &mut Renderer);
 }
 
+pub trait Modal {
+    fn render_modal(
+        &mut self,
+        ui: &Ui,
+        join_handles: &mut Vec<JoinHandle<io::Result<()>>>,
+        sensor_windows: &mut Vec<Box<dyn Renderable>>,
+    );
+}
+
 pub struct SensorWindow {
     events_loop: glutin::EventsLoop,
     display: Display,
@@ -23,8 +33,7 @@ pub struct SensorWindow {
     renderer: Renderer,
     sensor_windows: Vec<Box<dyn Renderable>>,
     join_handles: Vec<JoinHandle<io::Result<()>>>,
-    camera_config: CameraConfig,
-    lidar_config: LidarConfig,
+    config_windows: Vec<Box<dyn Modal>>,
 }
 
 impl SensorWindow {
@@ -70,6 +79,12 @@ impl SensorWindow {
         let renderer = Renderer::init(&mut imgui, &display)
             .expect("Failed to initialize renderer");
 
+        let config_windows: Vec<Box<dyn Modal>> = vec![
+            Box::new(CameraConfig::new()),
+            Box::new(LidarConfig::new()),
+            Box::new(GPSConfig::new()),
+        ];
+
         Self {
             events_loop,
             display,
@@ -78,8 +93,7 @@ impl SensorWindow {
             renderer,
             sensor_windows: Vec::new(),
             join_handles: Vec::new(),
-            camera_config: CameraConfig::new(),
-            lidar_config: LidarConfig::new(),
+            config_windows,
         }
     }
 
@@ -95,8 +109,7 @@ impl SensorWindow {
             mut renderer,
             mut sensor_windows,
             mut join_handles,
-            mut camera_config,
-            mut lidar_config,
+            mut config_windows,
             ..
         } = self;
         let gl_window = display.gl_window();
@@ -134,16 +147,13 @@ impl SensorWindow {
                     &[im_str!("Camera"), im_str!("LIDAR"), im_str!("GPS")],
                     10,
                 );
-                camera_config.render_camera_modal(
-                    &ui,
-                    &mut join_handles,
-                    &mut sensor_windows,
-                );
-                lidar_config.render_lidar_modal(
-                    &ui,
-                    &mut join_handles,
-                    &mut sensor_windows,
-                );
+                config_windows.iter_mut().for_each(|win| {
+                    win.render_modal(
+                        &ui,
+                        &mut join_handles,
+                        &mut sensor_windows,
+                    )
+                });
                 if ui.button(im_str!("Configure sensor..."), [0.0, 0.0]) {
                     match selected_sensor {
                         0 => {
@@ -151,6 +161,9 @@ impl SensorWindow {
                         }
                         1 => {
                             ui.open_popup(im_str!("LIDAR Configuration"));
+                        }
+                        2 => {
+                            ui.open_popup(im_str!("GPS Configuration"));
                         }
                         _ => {
                             ui.text("Not supported yet");
