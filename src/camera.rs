@@ -17,7 +17,19 @@ use std::io::{self, Cursor, Read};
 use std::net::SocketAddr;
 use std::net::{TcpListener, TcpStream};
 use std::rc::Rc;
+use std::str::FromStr;
 use std::thread::{self, JoinHandle};
+use strum::IntoEnumIterator;
+use strum_macros::{AsRefStr, EnumIter, EnumString};
+
+#[derive(AsRefStr, EnumIter, EnumString, Clone, Copy, Debug)]
+/// A list of allowed formats for the camera. Currently we only support
+/// MJPEG, but the boilerplate for allowing the user to select different
+/// formats is set up.
+pub enum VideoFormat {
+    MJPEG,
+    H264,
+}
 
 pub struct Camera {
     sender: Sender<CameraData>,
@@ -38,27 +50,38 @@ impl Camera {
     /// multiple connections, though multiple connections aren't handled
     /// correctly at the moment.
     ///
-    pub fn start(mut self, ip: SocketAddr) -> JoinHandle<io::Result<()>> {
+    pub fn start(
+        mut self,
+        ip: SocketAddr,
+        video_format: VideoFormat,
+    ) -> JoinHandle<io::Result<()>> {
+        println!("Starting a camera on {} with format {:?}", ip, video_format);
         thread::spawn(move || {
             let listener = TcpListener::bind(&ip).unwrap();
             for stream in listener.incoming() {
-                self.handle_image_stream(stream?)?;
+                self.handle_image_stream(stream?, video_format)?;
             }
             Ok(())
         })
     }
 
-    /// Receives bytes and decodes them to bytes. This function makes a couple
-    /// of assumptions:
-    ///
-    /// 1. This function assumes the data format of the Raspberry Pi Camera
-    ///    (which is a u32 containing the data length followed by n bytes).
-    /// 2. The data is assumed to be MJPEG.
-    ///
+    /// Receives bytes and decodes them to bytes. Currently only supports
+    /// MJPEG, though the boilerplate for H264 exists.
     pub fn handle_image_stream(
         &mut self,
-        mut stream: TcpStream,
+        stream: TcpStream,
+        video_format: VideoFormat,
     ) -> io::Result<()> {
+        match video_format {
+            VideoFormat::MJPEG => self.handle_mjpeg(stream),
+            VideoFormat::H264 => Ok(()),
+        }
+    }
+
+    /// Handles receiving MJPEG data and sending frames to the camera window.
+    /// This function assumes the data format of the Raspberry Pi Camera
+    /// (which is a u32 containing the data length followed by n bytes).
+    fn handle_mjpeg(&mut self, mut stream: TcpStream) -> io::Result<()> {
         loop {
             let size = stream.read_u32::<LittleEndian>()? as usize;
             let mut bytes = vec![0; size];
@@ -155,13 +178,25 @@ impl Renderable for CameraWindow {
 
 pub struct CameraConfig {
     camera_ip: ImString,
+    video_format_list: Vec<ImString>,
+    video_format_item: usize,
 }
 
 impl CameraConfig {
     pub fn new() -> Self {
         let mut camera_ip = ImString::new("0.0.0.0:8001");
+        let video_format_list: Vec<ImString> = VideoFormat::iter()
+            .map(|vf| {
+                let vf_str: &str = vf.as_ref();
+                ImString::new(vf_str)
+            })
+            .collect();
         camera_ip.reserve_exact(10);
-        Self { camera_ip }
+        Self {
+            camera_ip,
+            video_format_item: 0,
+            video_format_list,
+        }
     }
 
     pub fn render_camera_modal(
@@ -170,23 +205,43 @@ impl CameraConfig {
         join_handles: &mut Vec<JoinHandle<io::Result<()>>>,
         sensor_windows: &mut Vec<Box<dyn Renderable>>,
     ) {
-        ui.popup_modal(im_str!("Camera Configuration")).build(|| {
-            ui.input_text(im_str!("Listen Address"), &mut self.camera_ip)
-                .build();
-            if ui.button(im_str!("Create Sensor Window"), [0.0, 0.0]) {
-                let (camera_tx, camera_rx) = unbounded();
-                let camera = Camera::new(camera_tx);
-                join_handles.push(
-                    camera.start(
-                        self.camera_ip
-                            .to_string()
-                            .parse()
-                            .expect("couldn't parse IP address"),
-                    ),
-                );
-                sensor_windows.push(Box::new(CameraWindow::new(camera_rx)));
-                ui.close_current_popup();
-            }
-        });
+        ui.popup_modal(im_str!("Camera Configuration"))
+            .flags(WindowFlags::ALWAYS_AUTO_RESIZE)
+            .build(|| {
+                ui.input_text(im_str!("Listen Address"), &mut self.camera_ip)
+                    .build();
+
+                // For some reason, the combo box takes a slice of references, so
+                // we need to make a new Vec of references.
+                let video_slices: Vec<&ImString> =
+                    self.video_format_list.iter().map(|vf| vf).collect();
+                imgui::ComboBox::new(im_str!("Video Format"))
+                    .build_simple_string(
+                        ui,
+                        &mut self.video_format_item,
+                        &video_slices,
+                    );
+
+                let video_format: VideoFormat = VideoFormat::from_str(
+                    &self.video_format_list[self.video_format_item].to_string(),
+                )
+                .unwrap();
+
+                if ui.button(im_str!("Create Sensor Window"), [0.0, 0.0]) {
+                    let (camera_tx, camera_rx) = unbounded();
+                    let camera = Camera::new(camera_tx);
+                    join_handles.push(
+                        camera.start(
+                            self.camera_ip
+                                .to_string()
+                                .parse()
+                                .expect("couldn't parse IP address"),
+                            video_format,
+                        ),
+                    );
+                    sensor_windows.push(Box::new(CameraWindow::new(camera_rx)));
+                    ui.close_current_popup();
+                }
+            });
     }
 }
