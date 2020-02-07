@@ -86,23 +86,24 @@ impl Camera {
             let size = stream.read_u32::<LittleEndian>()? as usize;
             let mut bytes = vec![0; size];
             stream.read_exact(&mut bytes[..])?;
+
             let bytes = Cursor::new(bytes);
             let decoder =
                 JPEGDecoder::new(bytes).expect("Couldn't make decoder");
             let (width, height) = decoder.dimensions();
-            let image_bytes =
-                decoder.read_image().expect("Couldn't read image");
-            let camera_data = CameraData {
-                image_bytes,
-                width: width as u32,
-                height: height as u32,
-            };
-            self.sender.send(camera_data).map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::ConnectionAborted,
-                    "camera channel disconnected",
-                )
-            })?;
+            if let Ok(image_bytes) = decoder.read_image() {
+                let camera_data = CameraData {
+                    image_bytes,
+                    width: width as u32,
+                    height: height as u32,
+                };
+                self.sender.send(camera_data).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::ConnectionAborted,
+                        "camera channel disconnected",
+                    )
+                })?;
+            }
         }
     }
 }
@@ -163,10 +164,7 @@ impl Renderable for CameraWindow {
             Window::new(im_str!("Camera"))
                 .flags(WindowFlags::ALWAYS_AUTO_RESIZE)
                 .build(ui, || {
-                    Image::new(tex_id, camera_dims)
-                        .uv0([1.0, 1.0])
-                        .uv1([0.0, 0.0])
-                        .build(&ui);
+                    Image::new(tex_id, camera_dims).build(&ui);
                 });
         } else {
             Window::new(im_str!("Camera")).build(ui, || {
