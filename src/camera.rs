@@ -7,7 +7,7 @@ use glium::{
     texture::{ClientFormat, RawImage2d},
     Texture2d,
 };
-use image::jpeg::JPEGDecoder;
+use image::jpeg::JpegDecoder;
 use image::ImageDecoder;
 use imgui::TextureId;
 use imgui::{self, im_str, ImString, Image, Ui, Window, WindowFlags};
@@ -88,21 +88,28 @@ impl Camera {
             stream.read_exact(&mut bytes[..])?;
 
             let bytes = Cursor::new(bytes);
-            let decoder =
-                JPEGDecoder::new(bytes).expect("Couldn't make decoder");
-            let (width, height) = decoder.dimensions();
-            if let Ok(image_bytes) = decoder.read_image() {
-                let camera_data = CameraData {
-                    image_bytes,
-                    width: width as u32,
-                    height: height as u32,
-                };
-                self.sender.send(camera_data).map_err(|_| {
-                    io::Error::new(
-                        io::ErrorKind::ConnectionAborted,
-                        "camera channel disconnected",
-                    )
-                })?;
+            if let Ok(decoder) = JpegDecoder::new(bytes) {
+                let (width, height) = decoder.dimensions();
+                let mut image_bytes: Vec<u8> =
+                    vec![0; decoder.total_bytes() as usize];
+                match decoder.read_image(&mut image_bytes[..]) {
+                    Ok(()) => {
+                        let camera_data = CameraData {
+                            image_bytes,
+                            width: width as u32,
+                            height: height as u32,
+                        };
+                        self.sender.send(camera_data).map_err(|_| {
+                            io::Error::new(
+                                io::ErrorKind::ConnectionAborted,
+                                "camera channel disconnected",
+                            )
+                        })?;
+                    }
+                    Err(e) => {
+                        println!("Error decoding the image: {:?}", e);
+                    }
+                }
             }
         }
     }
