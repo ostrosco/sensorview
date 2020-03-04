@@ -1,5 +1,4 @@
 use crate::window::{Modal, Renderable};
-use byteorder::{LittleEndian, ReadBytesExt};
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use glium::Display;
 use glium::{
@@ -13,11 +12,12 @@ use imgui::TextureId;
 use imgui::{self, im_str, ImString, Image, Ui, Window, WindowFlags};
 use imgui_glium_renderer::Renderer;
 use std::borrow::Cow;
-use std::io::{self, Cursor, Read};
+use std::error::Error;
+use std::f32::consts::PI;
+use std::io::{self, Cursor};
 use std::net::SocketAddr;
 use std::net::{TcpListener, TcpStream};
 use std::rc::Rc;
-use std::str::FromStr;
 use std::thread::{self, JoinHandle};
 
 pub struct GPS {
@@ -61,23 +61,53 @@ pub struct GPSData {
 
 pub struct GPSWindow {
     pub texture_id: Option<TextureId>,
+    pub tile: Vec<u8>,
     pub receiver: Receiver<GPSData>,
     pub points: Vec<GPSData>,
     pub x_tile: u32,
     pub y_tile: u32,
     pub zoom: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl GPSWindow {
     pub fn new(receiver: Receiver<GPSData>) -> Self {
         Self {
             texture_id: None,
+            tile: Vec::new(),
             receiver,
             x_tile: 0,
             y_tile: 0,
             zoom: 0,
             points: Vec::new(),
+            width: 0,
+            height: 0,
         }
+    }
+
+    fn query_osm(&mut self, lat: f32, lon: f32) -> Result<(), Box<dyn Error>> {
+        self.x_tile =
+            ((lon + 180.0) / 360.0 * (1 << self.zoom) as f32).floor() as u32;
+        let lat_rad = lat * PI / 180.0;
+        self.y_tile = ((1.0 - (lat_rad.tan().asinh()) / PI) / 2.0
+            * (1 << self.zoom) as f32)
+            .floor() as u32;
+        let mut resp = reqwest::get(&format!(
+            "http://a.tile.openstreetmap.org/{}/{}/{}.png",
+            self.zoom, self.x_tile, self.y_tile
+        ))?;
+        let mut bytes: Vec<u8> = Vec::new();
+        resp.copy_to(&mut bytes)?;
+        let bytes = Cursor::new(bytes);
+        let decoder = PNGDecoder::new(bytes).expect("couldn't make decoder");
+        let (width, height) = decoder.dimensions();
+        self.width = width as u32;
+        self.height = height as u32;
+        self.tile =
+            decoder.read_image().expect("couldn't parse image").to_vec();
+
+        Ok(())
     }
 }
 
@@ -85,6 +115,26 @@ impl Renderable for GPSWindow {
     /// Renders the data received from the gps sensor. This currently
     /// assumes RGB data format.
     fn render(&mut self, ui: &Ui, display: &Display, renderer: &mut Renderer) {
+        if self.tile.is_empty() {
+            self.query_osm(0.0, 0.0).expect("Couldn't get tiles");
+
+            let image_frame = Some(RawImage2d {
+                data: Cow::Owned(self.tile.clone()),
+                width: self.width as u32,
+                height: self.height as u32,
+                format: ClientFormat::U8U8U8,
+            })
+            .unwrap();
+            let gl_texture = Texture2d::new(display.get_context(), image_frame)
+                .expect("Couldn't create new texture");
+            if let Some(tex_id) = self.texture_id {
+                renderer.textures().replace(tex_id, Rc::new(gl_texture));
+            } else {
+                self.texture_id =
+                    Some(renderer.textures().insert(Rc::new(gl_texture)));
+            }
+        }
+
         if let Ok(gps_data) = self.receiver.try_recv() {
             // TODO: consider _not_ adding the point if the point hasn't
             // changed between measurements. A stationary object shouldn't
@@ -97,11 +147,42 @@ impl Renderable for GPSWindow {
             //    a. If so, use the current tile and draw the points on top.
             //    b. If not, get a new tile and draw the points on top.
             //
+            let image_frame = Some(RawImage2d {
+                data: Cow::Owned(self.tile.clone()),
+                width: self.width as u32,
+                height: self.height as u32,
+                format: ClientFormat::U8U8U8,
+            })
+            .unwrap();
+            let gl_texture = Texture2d::new(display.get_context(), image_frame)
+                .expect("Couldn't create new texture");
+            if let Some(tex_id) = self.texture_id {
+                renderer.textures().replace(tex_id, Rc::new(gl_texture));
+            } else {
+                self.texture_id =
+                    Some(renderer.textures().insert(Rc::new(gl_texture)));
+            }
         }
 
-        Window::new(im_str!("GPS")).build(ui, || {
-            ui.text(im_str!("Waiting for GPS data..."));
-        });
+        // We call this each iteration of the CameraWindow, so we need to make
+        // sure we draw the window even if we didn't receive camera data on
+        // this iteration. However, we currently do not draw a window unless
+        // we've received our first sample from the camera.
+        if let Some(tex_id) = self.texture_id {
+            let dims = [self.width as f32, self.height as f32];
+            Window::new(im_str!("GPS"))
+                .flags(WindowFlags::ALWAYS_AUTO_RESIZE)
+                .build(ui, || {
+                    Image::new(tex_id, dims)
+                        .uv0([1.0, 1.0])
+                        .uv1([0.0, 0.0])
+                        .build(&ui);
+                });
+        } else {
+            Window::new(im_str!("GPS")).build(ui, || {
+                ui.text(im_str!("Waiting for GPS data..."));
+            });
+        }
     }
 }
 
