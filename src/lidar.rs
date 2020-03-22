@@ -1,4 +1,4 @@
-use crate::window::Renderable;
+use crate::window::{Modal, Renderable};
 use byteorder::{LittleEndian, ReadBytesExt};
 use crossbeam::{unbounded, Receiver, Sender};
 use glium::Display;
@@ -7,7 +7,7 @@ use glium::{
     texture::{ClientFormat, RawImage2d},
     Texture2d,
 };
-use image_022::{Rgb, RgbImage};
+use image::{Rgb, RgbImage};
 use imageproc::drawing::draw_filled_circle_mut;
 use imgui::TextureId;
 use imgui::{self, im_str, ImString, Image, Ui, Window, WindowFlags};
@@ -152,30 +152,34 @@ impl LidarConfig {
         lidar_ip.reserve_exact(10);
         Self { lidar_ip }
     }
+}
 
-    pub fn render_lidar_modal(
+impl Modal for LidarConfig {
+    fn render_modal(
         &mut self,
         ui: &Ui,
         join_handles: &mut Vec<JoinHandle<io::Result<()>>>,
         sensor_windows: &mut Vec<Box<dyn Renderable>>,
     ) {
-        ui.popup_modal(im_str!("LIDAR Configuration")).build(|| {
-            ui.input_text(im_str!("Listen Address"), &mut self.lidar_ip)
-                .build();
-            if ui.button(im_str!("Create Sensor Window"), [0.0, 0.0]) {
-                let (lidar_tx, lidar_rx) = unbounded();
-                let lidar = Lidar::new(lidar_tx);
-                join_handles.push(
-                    lidar.start(
-                        self.lidar_ip
-                            .to_string()
-                            .parse()
-                            .expect("couldn't parse IP address"),
-                    ),
-                );
-                sensor_windows.push(Box::new(LidarWindow::new(lidar_rx)));
-                ui.close_current_popup();
-            }
-        });
+        ui.popup_modal(im_str!("LIDAR Configuration"))
+            .flags(WindowFlags::ALWAYS_AUTO_RESIZE)
+            .build(|| {
+                ui.input_text(im_str!("Listen Address"), &mut self.lidar_ip)
+                    .build();
+                if ui.button(im_str!("Create Sensor Window"), [0.0, 0.0]) {
+                    let (lidar_tx, lidar_rx) = unbounded();
+                    let lidar = Lidar::new(lidar_tx);
+                    join_handles.push(
+                        lidar.start(
+                            self.lidar_ip
+                                .to_string()
+                                .parse()
+                                .expect("couldn't parse IP address"),
+                        ),
+                    );
+                    sensor_windows.push(Box::new(LidarWindow::new(lidar_rx)));
+                    ui.close_current_popup();
+                }
+            });
     }
 }

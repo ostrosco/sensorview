@@ -1,4 +1,4 @@
-use crate::window::Renderable;
+use crate::window::{Modal, Renderable};
 use byteorder::{LittleEndian, ReadBytesExt};
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use glium::Display;
@@ -203,8 +203,10 @@ impl CameraConfig {
             video_format_list,
         }
     }
+}
 
-    pub fn render_camera_modal(
+impl Modal for CameraConfig {
+    fn render_modal(
         &mut self,
         ui: &Ui,
         join_handles: &mut Vec<JoinHandle<io::Result<()>>>,
