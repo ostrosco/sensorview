@@ -7,7 +7,7 @@ use glium::{
     texture::{ClientFormat, RawImage2d},
     Texture2d,
 };
-use image::png::PNGDecoder;
+use image::png::PngDecoder;
 use image::ImageDecoder;
 use image::{Rgb, RgbImage};
 use imageproc::drawing::draw_filled_circle_mut;
@@ -229,9 +229,10 @@ impl GPSWindow {
         let mut bytes: Vec<u8> = Vec::new();
         resp.copy_to(&mut bytes)?;
         let bytes = Cursor::new(bytes);
-        let decoder = PNGDecoder::new(bytes).expect("couldn't make decoder");
+        let decoder = PngDecoder::new(bytes).expect("couldn't make decoder");
         let (width, height) = decoder.dimensions();
-        let data = decoder.read_image().expect("couldn't parse image").to_vec();
+        let mut data: Vec<u8> = vec![0; decoder.total_bytes() as usize];
+        decoder.read_image(&mut data).expect("couldn't parse image");
         Ok(OsmTile {
             data,
             width: width as u32,

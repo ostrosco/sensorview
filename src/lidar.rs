@@ -13,14 +13,13 @@ use imgui::TextureId;
 use imgui::{self, im_str, ImString, Image, Ui, Window, WindowFlags};
 use imgui_glium_renderer::Renderer;
 use std::borrow::Cow;
-use std::f32::consts::PI;
 use std::io;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::rc::Rc;
 use std::thread::{self, JoinHandle};
 
 pub struct LidarData {
-    distances: Vec<f32>,
+    distances: Vec<(f32, f32)>,
 }
 
 pub struct Lidar {
@@ -51,10 +50,15 @@ impl Lidar {
         mut stream: TcpStream,
     ) -> io::Result<()> {
         loop {
-            let mut distances = [0f32; 360];
-            stream.read_f32_into::<LittleEndian>(&mut distances)?;
+            let mut scan = Vec::new();
+            let scan_size = stream.read_u32::<LittleEndian>()?;
+            for _ in 0..scan_size {
+                let angle = stream.read_f32::<LittleEndian>()?;
+                let distance = stream.read_f32::<LittleEndian>()?;
+                scan.push((angle, distance));
+            }
             let lidar_data = LidarData {
-                distances: distances.to_vec(),
+                distances: scan.to_vec(),
             };
             self.sender.send(lidar_data).map_err(|_| {
                 io::Error::new(
@@ -69,7 +73,7 @@ impl Lidar {
 pub struct LidarWindow {
     texture_id: Option<TextureId>,
     receiver: Receiver<LidarData>,
-    lidar_data: Vec<f32>,
+    lidar_data: Vec<(f32, f32)>,
 }
 
 impl LidarWindow {
@@ -92,8 +96,7 @@ impl Renderable for LidarWindow {
             self.lidar_data = lidar_data.distances;
             let mut image = RgbImage::new(image_dim as u32, image_dim as u32);
             let color = Rgb([255u8, 0u8, 0u8]);
-            for (angle, distance) in self.lidar_data.iter().enumerate() {
-                let angle = angle as f32 * PI / 180.0;
+            for (angle, distance) in self.lidar_data.iter() {
                 let x = scale * distance * angle.cos() + image_dim / 2.0;
                 let y = image_dim / 2.0 - (distance * angle.sin()) * scale;
                 draw_filled_circle_mut(
