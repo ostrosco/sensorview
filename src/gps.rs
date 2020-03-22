@@ -1,4 +1,5 @@
 use crate::window::{Modal, Renderable};
+use byteorder::{LittleEndian, ReadBytesExt};
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use glium::Display;
 use glium::{
@@ -51,13 +52,14 @@ impl GPS {
         })
     }
 
-    pub fn handle_gps(&mut self, mut _stream: TcpStream) -> io::Result<()> {
-        // TODO:
-        //
-        // Handle the NMEA data we're receiving from the GPS. From there,
-        // pull out the lat/lon (as that's all we probably care about right now)
-        // and send it to the window.
-        Ok(())
+    pub fn handle_gps(&mut self, mut stream: TcpStream) -> io::Result<()> {
+        println!("Received a connection for GPS data...");
+        loop {
+            let lat = stream.read_f32::<LittleEndian>()?;
+            let lon = stream.read_f32::<LittleEndian>()?;
+            let data = GPSData { lat, lon };
+            self.sender.send(data).unwrap();
+        }
     }
 }
 
@@ -139,24 +141,20 @@ impl GPSWindow {
         self.y_tile =
             ((1.0 - (lat_rad.tan().asinh()) / PI) / 2.0 * n).floor() as u32;
 
-        let nw_xtile;
-        let nw_ytile;
-        if self.zoom > 0 {
+        let (nw_xtile, nw_ytile) = if self.zoom > 0 {
+            self.image = Vec::new();
             self.query_tiles()?;
             // TODO: for the moment, the map is hardcoded to query a 3x3 grid
             // for the map, so we know for certain which tile is the
             // northwestern tile. In theory though, this shouldn't be hardcoded.
-            nw_xtile = self.x_tile - 1;
-            nw_ytile = self.y_tile - 1;
+            (self.x_tile - 1, self.y_tile - 1)
         } else {
             let tile = self.query_tile(self.x_tile, self.y_tile)?;
             self.image = tile.data;
             self.width = tile.width;
             self.height = tile.height;
-            nw_xtile = self.x_tile;
-            nw_ytile = self.y_tile;
-        }
-
+            (self.x_tile, self.y_tile)
+        };
 
         // Now, work backwards to calculate the lat/lon of the northwestern
         // corner of the tile. Taken from:
@@ -190,7 +188,7 @@ impl GPSWindow {
             )?;
             self.image.append(&mut row);
         }
-        self.height = self.height * 3;
+        self.height *= 3;
         Ok(())
     }
 
@@ -234,7 +232,11 @@ impl GPSWindow {
         let decoder = PNGDecoder::new(bytes).expect("couldn't make decoder");
         let (width, height) = decoder.dimensions();
         let data = decoder.read_image().expect("couldn't parse image").to_vec();
-        Ok(OsmTile { data, width: width as u32, height: height as u32 })
+        Ok(OsmTile {
+            data,
+            width: width as u32,
+            height: height as u32,
+        })
     }
 }
 
@@ -264,7 +266,12 @@ impl Renderable for GPSWindow {
         }
 
         if let Ok(gps_data) = self.receiver.try_recv() {
-            self.zoom = 15;
+            // The zoom is zero until we receive our first point. Once the
+            // first point comes in, query OSM for the tiles for this point.
+            if self.zoom == 0 {
+                self.zoom = 16;
+                self.query_osm(gps_data.lat, gps_data.lon).unwrap();
+            }
 
             // TODO: consider _not_ adding the point if the point hasn't
             // changed between measurements. A stationary object shouldn't
