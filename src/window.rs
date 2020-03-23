@@ -1,5 +1,5 @@
 use crate::camera::CameraConfig;
-use crate::gps::GPSConfig;
+use crate::gps::GpsConfig;
 use crate::lidar::LidarConfig;
 use glium::glutin::{self, Event, WindowEvent};
 use glium::{Display, Surface};
@@ -82,7 +82,7 @@ impl SensorWindow {
         let config_windows: Vec<Box<dyn Modal>> = vec![
             Box::new(CameraConfig::new()),
             Box::new(LidarConfig::new()),
-            Box::new(GPSConfig::new()),
+            Box::new(GpsConfig::new()),
         ];
 
         Self {
