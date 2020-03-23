@@ -23,18 +23,19 @@ use std::net::{TcpListener, TcpStream};
 use std::rc::Rc;
 use std::thread::{self, JoinHandle};
 
+// Defines the meters per pixel by zoom level from 0 to 20.
 static METERS_PER_PIXEL: [f32; 21] = [
     156_412.0, 78206.0, 39103.0, 19551.0, 9776.0, 4888.0, 2444.0, 1222.0,
     610.984, 305.492, 152.746, 76.373, 38.187, 19.093, 9.547, 4.773, 2.387,
     1.193, 0.596, 0.298, 0.149,
 ];
 
-pub struct GPS {
-    sender: Sender<GPSData>,
+pub struct Gps {
+    sender: Sender<GpsData>,
 }
 
-impl GPS {
-    pub fn new(sender: Sender<GPSData>) -> Self {
+impl Gps {
+    pub fn new(sender: Sender<GpsData>) -> Self {
         Self { sender }
     }
 
@@ -57,22 +58,22 @@ impl GPS {
         loop {
             let lat = stream.read_f32::<LittleEndian>()?;
             let lon = stream.read_f32::<LittleEndian>()?;
-            let data = GPSData { lat, lon };
+            let data = GpsData { lat, lon };
             self.sender.send(data).unwrap();
         }
     }
 }
 
 #[derive(Clone)]
-pub struct GPSData {
+pub struct GpsData {
     lat: f32,
     lon: f32,
 }
 
-pub struct GPSWindow {
+pub struct GpsWindow {
     pub texture_id: Option<TextureId>,
-    pub image: Vec<u8>,
-    pub receiver: Receiver<GPSData>,
+    pub image: RgbImage,
+    pub receiver: Receiver<GpsData>,
     pub points: Vec<(i32, i32)>,
     pub query_lat: f32,
     pub query_lon: f32,
@@ -93,11 +94,11 @@ struct OsmTile {
     height: u32,
 }
 
-impl GPSWindow {
-    pub fn new(receiver: Receiver<GPSData>) -> Self {
+impl GpsWindow {
+    pub fn new(receiver: Receiver<GpsData>) -> Self {
         Self {
             texture_id: None,
-            image: Vec::new(),
+            image: RgbImage::from_raw(0, 0, Vec::new()).unwrap(),
             receiver,
             x_tile: 0,
             y_tile: 0,
@@ -119,7 +120,9 @@ impl GPSWindow {
             * (self.query_lat * PI / 180.0).cos()
     }
 
-    fn coords_to_pixel(&self, coords: &GPSData) -> (i32, i32) {
+    /// Converts a set of GPS coordinates to pixel coordinates relative to the
+    /// northwestern coordinates of the tiles being drawn.
+    fn coords_to_pixel(&self, coords: &GpsData) -> (i32, i32) {
         let meters_per_pixel = self.meters_per_pixel();
         let lon_diff = self.lon_meters * (coords.lon - self.nw_lon).abs()
             / meters_per_pixel;
@@ -128,6 +131,10 @@ impl GPSWindow {
         (lon_diff.floor() as i32, lat_diff.floor() as i32)
     }
 
+    /// Gathers tiles that contain and surround the given latitude and
+    /// longitude. Also calculates the most northwestern coordinate and the
+    /// number of meters per degree for latitude and longitude at this given
+    /// latitude.
     fn query_osm(&mut self, lat: f32, lon: f32) -> Result<(), Box<dyn Error>> {
         self.query_lat = lat;
         self.query_lon = lon;
@@ -142,17 +149,20 @@ impl GPSWindow {
             ((1.0 - (lat_rad.tan().asinh()) / PI) / 2.0 * n).floor() as u32;
 
         let (nw_xtile, nw_ytile) = if self.zoom > 0 {
-            self.image = Vec::new();
-            self.query_tiles()?;
+            let image_bytes = self.query_tiles()?;
+            self.image =
+                RgbImage::from_raw(self.width, self.height, image_bytes)
+                    .unwrap();
             // TODO: for the moment, the map is hardcoded to query a 3x3 grid
             // for the map, so we know for certain which tile is the
             // northwestern tile. In theory though, this shouldn't be hardcoded.
             (self.x_tile - 1, self.y_tile - 1)
         } else {
             let tile = self.query_tile(self.x_tile, self.y_tile)?;
-            self.image = tile.data;
             self.width = tile.width;
             self.height = tile.height;
+            self.image =
+                RgbImage::from_raw(self.width, self.height, tile.data).unwrap();
             (self.x_tile, self.y_tile)
         };
 
@@ -176,22 +186,25 @@ impl GPSWindow {
         Ok(())
     }
 
-    fn query_tiles(&mut self) -> Result<(), Box<dyn Error>> {
+    /// Queries nine tiles used for drawing data onto the map.
+    fn query_tiles(&mut self) -> Result<Vec<u8>, Box<dyn Error>> {
         // First off, we need to query nine tiles. The tile for our starting
         // point will be the center tile and we'll query all the other tiles
         // around it.
+        let mut image_bytes = Vec::new();
         for y in -1_i32..=1 {
             let mut row = self.query_map_row(
                 self.x_tile - 1,
                 (self.y_tile as i32 + y) as u32,
                 3,
             )?;
-            self.image.append(&mut row);
+            image_bytes.append(&mut row);
         }
         self.height *= 3;
-        Ok(())
+        Ok(image_bytes)
     }
 
+    /// Queries a row of tiles and stitches them together.
     fn query_map_row(
         &mut self,
         x_tile: u32,
@@ -217,6 +230,7 @@ impl GPSWindow {
         Ok(map_row)
     }
 
+    /// Queries a single tile from OpenStreetMap.
     fn query_tile(
         &self,
         x_tile: u32,
@@ -241,7 +255,7 @@ impl GPSWindow {
     }
 }
 
-impl Renderable for GPSWindow {
+impl Renderable for GpsWindow {
     /// Renders the data received from the gps sensor. This currently
     /// assumes RGB data format.
     fn render(&mut self, ui: &Ui, display: &Display, renderer: &mut Renderer) {
@@ -250,7 +264,7 @@ impl Renderable for GPSWindow {
                 .expect("Couldn't get tiles");
 
             let image_frame = Some(RawImage2d {
-                data: Cow::Owned(self.image.clone()),
+                data: Cow::Owned(self.image.to_vec()),
                 width: self.width as u32,
                 height: self.height as u32,
                 format: ClientFormat::U8U8U8,
@@ -280,22 +294,15 @@ impl Renderable for GPSWindow {
             let pixel_coords = self.coords_to_pixel(&gps_data);
             self.points.push(pixel_coords);
             let color = Rgb([0u8, 0u8, 255u8]);
-            let mut image =
-                RgbImage::from_raw(self.width, self.height, self.image.clone())
-                    .unwrap();
-
-            for coords in self.points.iter() {
-                draw_filled_circle_mut(&mut image, *coords, 3, color);
-            }
+            draw_filled_circle_mut(&mut self.image, pixel_coords, 3, color);
 
             // TODO: this needs to be filled in to do the following things:
             //
             // Check if the current tile will fit all of the current points.
-            //    a. If so, use the current tile and draw the points on top.
-            //    b. If not, get a new tile and draw the points on top.
+            // If not, get a new tile and re-draw the points on top.
             //
             let image_frame = Some(RawImage2d {
-                data: Cow::Owned(image.to_vec()),
+                data: Cow::Owned(self.image.to_vec()),
                 width: self.width as u32,
                 height: self.height as u32,
                 format: ClientFormat::U8U8U8,
@@ -311,7 +318,7 @@ impl Renderable for GPSWindow {
             }
         }
 
-        // We call this each iteration of the CameraWindow, so we need to make
+        // We call this each iteration of the GpsWindow, so we need to make
         // sure we draw the window even if we didn't receive camera data on
         // this iteration. However, we currently do not draw a window unless
         // we've received our first sample from the camera.
@@ -330,11 +337,11 @@ impl Renderable for GPSWindow {
     }
 }
 
-pub struct GPSConfig {
+pub struct GpsConfig {
     gps_ip: ImString,
 }
 
-impl GPSConfig {
+impl GpsConfig {
     pub fn new() -> Self {
         let mut gps_ip = ImString::new("0.0.0.0:8003");
         gps_ip.reserve_exact(10);
@@ -342,7 +349,7 @@ impl GPSConfig {
     }
 }
 
-impl Modal for GPSConfig {
+impl Modal for GpsConfig {
     fn render_modal(
         &mut self,
         ui: &Ui,
@@ -356,7 +363,7 @@ impl Modal for GPSConfig {
                     .build();
                 if ui.button(im_str!("Create Sensor Window"), [0.0, 0.0]) {
                     let (gps_tx, gps_rx) = unbounded();
-                    let gps = GPS::new(gps_tx);
+                    let gps = Gps::new(gps_tx);
                     join_handles.push(
                         gps.start(
                             self.gps_ip
@@ -365,7 +372,7 @@ impl Modal for GPSConfig {
                                 .expect("couldn't parse IP address"),
                         ),
                     );
-                    sensor_windows.push(Box::new(GPSWindow::new(gps_rx)));
+                    sensor_windows.push(Box::new(GpsWindow::new(gps_rx)));
                     ui.close_current_popup();
                 }
             });
