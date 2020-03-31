@@ -1,4 +1,5 @@
 mod camera;
+mod controller;
 mod gps;
 mod lidar;
 mod window;
