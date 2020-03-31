@@ -1,4 +1,5 @@
 use crate::camera::CameraConfig;
+use crate::controller::ControllerConfig;
 use crate::gps::GpsConfig;
 use crate::lidar::LidarConfig;
 use glium::glutin::{self, Event, WindowEvent};
@@ -83,6 +84,7 @@ impl SensorWindow {
             Box::new(CameraConfig::new()),
             Box::new(LidarConfig::new()),
             Box::new(GpsConfig::new()),
+            Box::new(ControllerConfig::new()),
         ];
 
         Self {
@@ -117,10 +119,6 @@ impl SensorWindow {
         let mut run = true;
         let mut selected_sensor = 0i32;
 
-        // TODO: Right now we're manually creating a Camera window for testing
-        // but eventually windows should be created by request from the user.
-        // We need a way to create new windows from the user.
-
         while run {
             // Handle any close events for the window.
             events_loop.poll_events(|event| {
@@ -144,7 +142,12 @@ impl SensorWindow {
                 ui.list_box(
                     im_str!(""),
                     &mut selected_sensor,
-                    &[im_str!("Camera"), im_str!("LIDAR"), im_str!("GPS")],
+                    &[
+                        im_str!("Camera"),
+                        im_str!("LIDAR"),
+                        im_str!("GPS"),
+                        im_str!("Controller"),
+                    ],
                     10,
                 );
                 config_windows.iter_mut().for_each(|win| {
@@ -164,6 +167,9 @@ impl SensorWindow {
                         }
                         2 => {
                             ui.open_popup(im_str!("GPS Configuration"));
+                        }
+                        3 => {
+                            ui.open_popup(im_str!("Controller Configuration"));
                         }
                         _ => {
                             ui.text("Not supported yet");
