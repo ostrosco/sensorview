@@ -143,14 +143,14 @@ impl Renderable for LidarWindow {
 }
 
 pub struct LidarConfig {
-    lidar_ip: ImString,
+    lidar_port: ImString,
 }
 
 impl LidarConfig {
     pub fn new() -> Self {
-        let mut lidar_ip = ImString::new("0.0.0.0:8002");
-        lidar_ip.reserve_exact(10);
-        Self { lidar_ip }
+        let mut lidar_port = ImString::new("8002");
+        lidar_port.reserve_exact(10);
+        Self { lidar_port }
     }
 }
 
@@ -164,15 +164,14 @@ impl Modal for LidarConfig {
         ui.popup_modal(im_str!("LIDAR Configuration"))
             .flags(WindowFlags::ALWAYS_AUTO_RESIZE)
             .build(|| {
-                ui.input_text(im_str!("Listen Address"), &mut self.lidar_ip)
+                ui.input_text(im_str!("Listen Port"), &mut self.lidar_port)
                     .build();
                 if ui.button(im_str!("Create Sensor Window"), [0.0, 0.0]) {
                     let (lidar_tx, lidar_rx) = unbounded();
                     let lidar = Lidar::new(lidar_tx);
                     join_handles.push(
                         lidar.start(
-                            self.lidar_ip
-                                .to_string()
+                            format!("0.0.0.0:{}", self.lidar_port.to_string())
                                 .parse()
                                 .expect("couldn't parse IP address"),
                         ),

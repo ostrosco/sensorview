@@ -338,14 +338,14 @@ impl Renderable for GpsWindow {
 }
 
 pub struct GpsConfig {
-    gps_ip: ImString,
+    gps_port: ImString,
 }
 
 impl GpsConfig {
     pub fn new() -> Self {
-        let mut gps_ip = ImString::new("0.0.0.0:8003");
-        gps_ip.reserve_exact(10);
-        Self { gps_ip }
+        let mut gps_port = ImString::new("8003");
+        gps_port.reserve_exact(10);
+        Self { gps_port }
     }
 }
 
@@ -359,15 +359,14 @@ impl Modal for GpsConfig {
         ui.popup_modal(im_str!("GPS Configuration"))
             .flags(WindowFlags::ALWAYS_AUTO_RESIZE)
             .build(|| {
-                ui.input_text(im_str!("Listen Address"), &mut self.gps_ip)
+                ui.input_text(im_str!("Listen Port"), &mut self.gps_port)
                     .build();
                 if ui.button(im_str!("Create Sensor Window"), [0.0, 0.0]) {
                     let (gps_tx, gps_rx) = unbounded();
                     let gps = Gps::new(gps_tx);
                     join_handles.push(
                         gps.start(
-                            self.gps_ip
-                                .to_string()
+                            format!("0.0.0.0:{}", self.gps_port.to_string())
                                 .parse()
                                 .expect("couldn't parse IP address"),
                         ),
