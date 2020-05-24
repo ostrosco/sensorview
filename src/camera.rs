@@ -182,23 +182,23 @@ impl Renderable for CameraWindow {
 }
 
 pub struct CameraConfig {
-    camera_ip: ImString,
+    camera_port: ImString,
     video_format_list: Vec<ImString>,
     video_format_item: usize,
 }
 
 impl CameraConfig {
     pub fn new() -> Self {
-        let mut camera_ip = ImString::new("0.0.0.0:8001");
+        let mut camera_port = ImString::new("8001");
         let video_format_list: Vec<ImString> = VideoFormat::iter()
             .map(|vf| {
                 let vf_str: &str = vf.as_ref();
                 ImString::new(vf_str)
             })
             .collect();
-        camera_ip.reserve_exact(10);
+        camera_port.reserve_exact(10);
         Self {
-            camera_ip,
+            camera_port,
             video_format_item: 0,
             video_format_list,
         }
@@ -215,7 +215,7 @@ impl Modal for CameraConfig {
         ui.popup_modal(im_str!("Camera Configuration"))
             .flags(WindowFlags::ALWAYS_AUTO_RESIZE)
             .build(|| {
-                ui.input_text(im_str!("Listen Address"), &mut self.camera_ip)
+                ui.input_text(im_str!("Listen Port"), &mut self.camera_port)
                     .build();
 
                 // For some reason, the combo box takes a slice of references, so
@@ -239,8 +239,7 @@ impl Modal for CameraConfig {
                     let camera = Camera::new(camera_tx);
                     join_handles.push(
                         camera.start(
-                            self.camera_ip
-                                .to_string()
+                            format!("0.0.0.0:{}", self.camera_port.to_string())
                                 .parse()
                                 .expect("couldn't parse IP address"),
                             video_format,
