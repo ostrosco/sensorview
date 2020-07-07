@@ -23,9 +23,8 @@ use strum::IntoEnumIterator;
 use strum_macros::{AsRefStr, EnumIter, EnumString};
 
 #[derive(AsRefStr, EnumIter, EnumString, Clone, Copy, Debug)]
-/// A list of allowed formats for the camera. Currently we only support
-/// MJPEG, but the boilerplate for allowing the user to select different
-/// formats is set up.
+/// A list of allowed formats for the camera. Currently we only support MJPEG, but the boilerplate
+/// for allowing the user to select different formats is set up.
 pub enum VideoFormat {
     MJPEG,
     H264,
@@ -46,10 +45,8 @@ impl Camera {
         Self { sender }
     }
 
-    /// Starts a TCP listener to receive data from the camera. This supports
-    /// multiple connections, though multiple connections aren't handled
-    /// correctly at the moment.
-    ///
+    /// Starts a TCP listener to receive data from the camera. This supports multiple connections,
+    /// though multiple connections aren't handled correctly at the moment.
     pub fn start(
         mut self,
         ip: SocketAddr,
@@ -78,9 +75,8 @@ impl Camera {
         }
     }
 
-    /// Handles receiving MJPEG data and sending frames to the camera window.
-    /// This function assumes the data format of the Raspberry Pi Camera
-    /// (which is a u32 containing the data length followed by n bytes).
+    /// Handles receiving MJPEG data and sending frames to the camera window. This function assumes
+    /// a data format that consists is a u32 containing the data length n followed by n bytes.
     fn handle_mjpeg(&mut self, mut stream: TcpStream) -> io::Result<()> {
         loop {
             let size = stream.read_u32::<LittleEndian>()? as usize;
@@ -90,8 +86,7 @@ impl Camera {
             let bytes = Cursor::new(bytes);
             if let Ok(decoder) = JpegDecoder::new(bytes) {
                 let (width, height) = decoder.dimensions();
-                let mut image_bytes: Vec<u8> =
-                    vec![0; decoder.total_bytes() as usize];
+                let mut image_bytes: Vec<u8> = vec![0; decoder.total_bytes() as usize];
                 match decoder.read_image(&mut image_bytes[..]) {
                     Ok(()) => {
                         let camera_data = CameraData {
@@ -139,9 +134,9 @@ impl Renderable for CameraWindow {
     /// Renders the data received from the camera sensor. This currently
     /// assumes RGB data format.
     fn render(&mut self, ui: &Ui, display: &Display, renderer: &mut Renderer) {
-        // If we've received new camera data, update the texture. We also need
-        // to check if there is an existing texture ahead of time so we can
-        // reuse the texture instead of creating a new one each time.
+        // If we've received new camera data, update the texture. We also need to check if there is
+        // an existing texture ahead of time so we can reuse the texture instead of creating a new
+        // one each time.
         if let Ok(camera_data) = self.receiver.try_recv() {
             let image_frame = Some(RawImage2d {
                 data: Cow::Owned(camera_data.image_bytes.clone()),
@@ -157,15 +152,13 @@ impl Renderable for CameraWindow {
             if let Some(tex_id) = self.texture_id {
                 renderer.textures().replace(tex_id, Rc::new(gl_texture));
             } else {
-                self.texture_id =
-                    Some(renderer.textures().insert(Rc::new(gl_texture)));
+                self.texture_id = Some(renderer.textures().insert(Rc::new(gl_texture)));
             }
         }
 
-        // We call this each iteration of the CameraWindow, so we need to make
-        // sure we draw the window even if we didn't receive camera data on
-        // this iteration. However, we currently do not draw a window unless
-        // we've received our first sample from the camera.
+        // We call this each iteration of the CameraWindow, so we need to make sure we draw the
+        // window even if we didn't receive camera data on this iteration. However, we currently
+        // do not draw a window unless we've received our first sample from the camera.
         if let Some(tex_id) = self.texture_id {
             let camera_dims = [self.window_width, self.window_height];
             Window::new(im_str!("Camera"))
@@ -218,16 +211,15 @@ impl Modal for CameraConfig {
                 ui.input_text(im_str!("Listen Port"), &mut self.camera_port)
                     .build();
 
-                // For some reason, the combo box takes a slice of references, so
-                // we need to make a new Vec of references.
+                // For some reason, the combo box takes a slice of references, so we need to make
+                // a new Vec of references.
                 let video_slices: Vec<&ImString> =
                     self.video_format_list.iter().map(|vf| vf).collect();
-                imgui::ComboBox::new(im_str!("Video Format"))
-                    .build_simple_string(
-                        ui,
-                        &mut self.video_format_item,
-                        &video_slices,
-                    );
+                imgui::ComboBox::new(im_str!("Video Format")).build_simple_string(
+                    ui,
+                    &mut self.video_format_item,
+                    &video_slices,
+                );
 
                 let video_format: VideoFormat = VideoFormat::from_str(
                     &self.video_format_list[self.video_format_item].to_string(),

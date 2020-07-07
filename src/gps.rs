@@ -25,9 +25,8 @@ use std::thread::{self, JoinHandle};
 
 // Defines the meters per pixel by zoom level from 0 to 20.
 static METERS_PER_PIXEL: [f32; 21] = [
-    156_412.0, 78206.0, 39103.0, 19551.0, 9776.0, 4888.0, 2444.0, 1222.0,
-    610.984, 305.492, 152.746, 76.373, 38.187, 19.093, 9.547, 4.773, 2.387,
-    1.193, 0.596, 0.298, 0.149,
+    156_412.0, 78206.0, 39103.0, 19551.0, 9776.0, 4888.0, 2444.0, 1222.0, 610.984, 305.492,
+    152.746, 76.373, 38.187, 19.093, 9.547, 4.773, 2.387, 1.193, 0.596, 0.298, 0.149,
 ];
 
 pub struct Gps {
@@ -39,10 +38,8 @@ impl Gps {
         Self { sender }
     }
 
-    /// Starts a TCP listener to receive data from the GPS. This supports
-    /// multiple connections, though multiple connections aren't handled
-    /// correctly at the moment.
-    ///
+    /// Starts a TCP listener to receive data from the GPS. This supports multiple connections,
+    /// though multiple connections aren't handled correctly at the moment.
     pub fn start(mut self, ip: SocketAddr) -> JoinHandle<io::Result<()>> {
         thread::spawn(move || {
             let listener = TcpListener::bind(&ip).unwrap();
@@ -54,7 +51,6 @@ impl Gps {
     }
 
     pub fn handle_gps(&mut self, mut stream: TcpStream) -> io::Result<()> {
-        println!("Received a connection for GPS data...");
         loop {
             let lat = stream.read_f32::<LittleEndian>()?;
             let lon = stream.read_f32::<LittleEndian>()?;
@@ -116,88 +112,72 @@ impl GpsWindow {
     }
 
     fn meters_per_pixel(&self) -> f32 {
-        METERS_PER_PIXEL[self.zoom as usize]
-            * (self.query_lat * PI / 180.0).cos()
+        METERS_PER_PIXEL[self.zoom as usize] * (self.query_lat * PI / 180.0).cos()
     }
 
-    /// Converts a set of GPS coordinates to pixel coordinates relative to the
-    /// northwestern coordinates of the tiles being drawn.
+    /// Converts a set of GPS coordinates to pixel coordinates relative to the northwestern
+    /// coordinates of the tiles being drawn.
     fn coords_to_pixel(&self, coords: &GpsData) -> (i32, i32) {
         let meters_per_pixel = self.meters_per_pixel();
-        let lon_diff = self.lon_meters * (coords.lon - self.nw_lon).abs()
-            / meters_per_pixel;
-        let lat_diff = self.lat_meters * (coords.lat - self.nw_lat).abs()
-            / meters_per_pixel;
+        let lon_diff = self.lon_meters * (coords.lon - self.nw_lon).abs() / meters_per_pixel;
+        let lat_diff = self.lat_meters * (coords.lat - self.nw_lat).abs() / meters_per_pixel;
         (lon_diff.floor() as i32, lat_diff.floor() as i32)
     }
 
-    /// Gathers tiles that contain and surround the given latitude and
-    /// longitude. Also calculates the most northwestern coordinate and the
-    /// number of meters per degree for latitude and longitude at this given
-    /// latitude.
+    /// Gathers tiles that contain and surround the given latitude and longitude. Also calculates
+    /// the most northwestern coordinate and the number of meters per degree for latitude and
+    /// longitude at this given latitude.
     fn query_osm(&mut self, lat: f32, lon: f32) -> Result<(), Box<dyn Error>> {
         self.query_lat = lat;
         self.query_lon = lon;
         let n = (1 << self.zoom) as f32;
 
-        // First, calculate the right tile to query that contains this
-        // input coordinate. Take from:
+        // First, calculate the right tile to query that contains this input coordinate. Taken from:
         // https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
         self.x_tile = ((lon + 180.0) / 360.0 * n as f32).floor() as u32;
         let lat_rad = lat * PI / 180.0;
-        self.y_tile =
-            ((1.0 - (lat_rad.tan().asinh()) / PI) / 2.0 * n).floor() as u32;
+        self.y_tile = ((1.0 - (lat_rad.tan().asinh()) / PI) / 2.0 * n).floor() as u32;
 
         let (nw_xtile, nw_ytile) = if self.zoom > 0 {
             let image_bytes = self.query_tiles()?;
-            self.image =
-                RgbImage::from_raw(self.width, self.height, image_bytes)
-                    .unwrap();
-            // TODO: for the moment, the map is hardcoded to query a 3x3 grid
-            // for the map, so we know for certain which tile is the
-            // northwestern tile. In theory though, this shouldn't be hardcoded.
+            self.image = RgbImage::from_raw(self.width, self.height, image_bytes).unwrap();
+            // TODO: for the moment, the map is hardcoded to query a 3x3 grid for the map, so we
+            // know for certain which tile is the northwestern tile. In theory though, this
+            // shouldn't be hardcoded.
             (self.x_tile - 1, self.y_tile - 1)
         } else {
             let tile = self.query_tile(self.x_tile, self.y_tile)?;
             self.width = tile.width;
             self.height = tile.height;
-            self.image =
-                RgbImage::from_raw(self.width, self.height, tile.data).unwrap();
+            self.image = RgbImage::from_raw(self.width, self.height, tile.data).unwrap();
             (self.x_tile, self.y_tile)
         };
 
-        // Now, work backwards to calculate the lat/lon of the northwestern
-        // corner of the tile. Taken from:
-        // https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
+        // Now, work backwards to calculate the lat/lon of the northwestern corner of the tile.
+        // Taken from: https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
         self.nw_lon = nw_xtile as f32 / n * 360.0 - 180.0;
         let n = PI - 2.0 * PI * nw_ytile as f32 / n;
         self.nw_lat = 180.0 / PI * (0.5 * (n.exp() - (-n).exp())).atan();
 
-        // Lastly, calculate the number of meters to move one degree north or
-        // south from the corner. Taken from:
-        // https://en.wikipedia.org/wiki/Geographic_coordinate_system
+        // Lastly, calculate the number of meters to move one degree north or south from the
+        // corner. Taken from: https://en.wikipedia.org/wiki/Geographic_coordinate_system
         let query_lat_rad = self.query_lat * PI / 180.0;
         self.lat_meters = 111_132.92 - 559.82 * (2.0 * query_lat_rad).cos()
             + 1.175 * (4.0 * query_lat_rad).cos()
             - 0.0023 * (6.0 * query_lat_rad).cos();
-        self.lon_meters = 111_412.84 * query_lat_rad.cos()
-            - 93.5 * (3.0 * query_lat_rad).cos()
+        self.lon_meters = 111_412.84 * query_lat_rad.cos() - 93.5 * (3.0 * query_lat_rad).cos()
             + 0.118 * (5.0 * query_lat_rad).cos();
         Ok(())
     }
 
     /// Queries nine tiles used for drawing data onto the map.
     fn query_tiles(&mut self) -> Result<Vec<u8>, Box<dyn Error>> {
-        // First off, we need to query nine tiles. The tile for our starting
-        // point will be the center tile and we'll query all the other tiles
-        // around it.
+        // First off, we need to query nine tiles. The tile for our starting point will be the
+        // center tile and we'll query all the other tiles around it.
         let mut image_bytes = Vec::new();
         for y in -1_i32..=1 {
-            let mut row = self.query_map_row(
-                self.x_tile - 1,
-                (self.y_tile as i32 + y) as u32,
-                3,
-            )?;
+            let mut row =
+                self.query_map_row(self.x_tile - 1, (self.y_tile as i32 + y) as u32, 3)?;
             image_bytes.append(&mut row);
         }
         self.height *= 3;
@@ -231,11 +211,7 @@ impl GpsWindow {
     }
 
     /// Queries a single tile from OpenStreetMap.
-    fn query_tile(
-        &self,
-        x_tile: u32,
-        y_tile: u32,
-    ) -> Result<OsmTile, Box<dyn Error>> {
+    fn query_tile(&self, x_tile: u32, y_tile: u32) -> Result<OsmTile, Box<dyn Error>> {
         let mut resp = reqwest::get(&format!(
             "http://a.tile.openstreetmap.org/{}/{}/{}.png",
             self.zoom, x_tile, y_tile,
@@ -256,8 +232,7 @@ impl GpsWindow {
 }
 
 impl Renderable for GpsWindow {
-    /// Renders the data received from the gps sensor. This currently
-    /// assumes RGB data format.
+    /// Renders the data received from the gps sensor. This currently assumes RGB data format.
     fn render(&mut self, ui: &Ui, display: &Display, renderer: &mut Renderer) {
         if self.image.is_empty() {
             self.query_osm(self.query_lat, self.query_lon)
@@ -275,22 +250,21 @@ impl Renderable for GpsWindow {
             if let Some(tex_id) = self.texture_id {
                 renderer.textures().replace(tex_id, Rc::new(gl_texture));
             } else {
-                self.texture_id =
-                    Some(renderer.textures().insert(Rc::new(gl_texture)));
+                self.texture_id = Some(renderer.textures().insert(Rc::new(gl_texture)));
             }
         }
 
         if let Ok(gps_data) = self.receiver.try_recv() {
-            // The zoom is zero until we receive our first point. Once the
-            // first point comes in, query OSM for the tiles for this point.
+            // The zoom is zero until we receive our first point. Once the first point comes in,
+            // query OSM for the tiles for this point.
             if self.zoom == 0 {
                 self.zoom = 16;
                 self.query_osm(gps_data.lat, gps_data.lon).unwrap();
             }
 
-            // TODO: consider _not_ adding the point if the point hasn't
-            // changed between measurements. A stationary object shouldn't
-            // overwrite the entire track of points thus far.
+            // TODO: consider _not_ adding the point if the point hasn't changed between
+            // measurements. A stationary object shouldn't overwrite the entire track of points
+            // thus far.
             let pixel_coords = self.coords_to_pixel(&gps_data);
             self.points.push(pixel_coords);
             let color = Rgb([0u8, 0u8, 255u8]);
@@ -298,9 +272,8 @@ impl Renderable for GpsWindow {
 
             // TODO: this needs to be filled in to do the following things:
             //
-            // Check if the current tile will fit all of the current points.
-            // If not, get a new tile and re-draw the points on top.
-            //
+            // Check if the current tile will fit all of the current points.  If not, get a new
+            // tile and re-draw the points on top.
             let image_frame = Some(RawImage2d {
                 data: Cow::Owned(self.image.to_vec()),
                 width: self.width as u32,
@@ -313,15 +286,13 @@ impl Renderable for GpsWindow {
             if let Some(tex_id) = self.texture_id {
                 renderer.textures().replace(tex_id, Rc::new(gl_texture));
             } else {
-                self.texture_id =
-                    Some(renderer.textures().insert(Rc::new(gl_texture)));
+                self.texture_id = Some(renderer.textures().insert(Rc::new(gl_texture)));
             }
         }
 
-        // We call this each iteration of the GpsWindow, so we need to make
-        // sure we draw the window even if we didn't receive camera data on
-        // this iteration. However, we currently do not draw a window unless
-        // we've received our first sample from the camera.
+        // We call this each iteration of the GpsWindow, so we need to make sure we draw the
+        // window even if we didn't receive camera data on this iteration. However, we currently
+        // do not draw a window unless we've received our first sample from the camera.
         if let Some(tex_id) = self.texture_id {
             let dims = [self.width as f32, self.height as f32];
             Window::new(im_str!("GPS"))

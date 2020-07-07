@@ -9,8 +9,8 @@ use std::net::TcpStream;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-/// A gamepad event enumeration identical to the EventType enumeration in
-/// `gilrs` except with the Code field removed.
+/// A gamepad event enumeration identical to the EventType enumeration in `gilrs` except with the
+/// Code field removed.
 #[derive(Debug, Serialize)]
 pub enum GpEvent {
     ButtonPressed(Button),
@@ -37,27 +37,16 @@ impl Controller {
             };
             loop {
                 while let Some(Event { event, .. }) = gilrs.next_event() {
-                    // Most of the fields in gilrs are serializable except
-                    // for the Code on each event. Since we don't need it and
-                    // we want to send events directly, we translate between
-                    // gilrs's events to custom events without the code so we
+                    // Most of the fields in gilrs are serializable except for the Code on each
+                    // event. Since we don't need it and we want to send events directly, we
+                    // translate between gilrs's events to custom events without the code so we
                     // can send it over the wire.
                     let gp_event = match event {
-                        EventType::ButtonPressed(btn, ..) => {
-                            GpEvent::ButtonPressed(btn)
-                        }
-                        EventType::ButtonRepeated(btn, ..) => {
-                            GpEvent::ButtonRepeated(btn)
-                        }
-                        EventType::ButtonReleased(btn, ..) => {
-                            GpEvent::ButtonReleased(btn)
-                        }
-                        EventType::ButtonChanged(btn, val, ..) => {
-                            GpEvent::ButtonChanged(btn, val)
-                        }
-                        EventType::AxisChanged(axis, val, ..) => {
-                            GpEvent::AxisChanged(axis, val)
-                        }
+                        EventType::ButtonPressed(btn, ..) => GpEvent::ButtonPressed(btn),
+                        EventType::ButtonRepeated(btn, ..) => GpEvent::ButtonRepeated(btn),
+                        EventType::ButtonReleased(btn, ..) => GpEvent::ButtonReleased(btn),
+                        EventType::ButtonChanged(btn, val, ..) => GpEvent::ButtonChanged(btn, val),
+                        EventType::AxisChanged(axis, val, ..) => GpEvent::AxisChanged(axis, val),
                         EventType::Connected => GpEvent::Connected,
                         EventType::Disconnected => GpEvent::Disconnected,
                         EventType::Dropped => GpEvent::Dropped,
@@ -91,9 +80,8 @@ impl Modal for ControllerConfig {
         join_handles: &mut Vec<JoinHandle<io::Result<()>>>,
         _sensor_windows: &mut Vec<Box<dyn Renderable>>,
     ) {
-        // TODO: right now this just creates the modal and then just silently
-        // sends controller events out. It'd be nice to have a window maybe
-        // representing the controller?
+        // TODO: right now this just creates the modal and then just silently sends controller
+        // events out. It'd be nice to have a window maybe representing the controller?
         ui.popup_modal(im_str!("Controller Configuration"))
             .flags(WindowFlags::ALWAYS_AUTO_RESIZE)
             .build(|| {
