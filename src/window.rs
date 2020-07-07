@@ -10,9 +10,8 @@ use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use std::io;
 use std::thread::JoinHandle;
 
-/// A trait for sensor windows so that eventually the main window can simply
-/// keep a list of all active sensor windows and update them without having
-/// to care about the types of sensors.
+/// A trait for sensor windows so that eventually the main window can simply keep a list of all
+/// active sensor windows and update them without having to care about the types of sensors.
 pub trait Renderable {
     fn render(&mut self, ui: &Ui, display: &Display, renderer: &mut Renderer);
 }
@@ -38,7 +37,7 @@ pub struct SensorWindow {
 }
 
 impl SensorWindow {
-    /// Initializes a blank window for displaying multiple sensor windows
+    /// Initializes a blank window for displaying multiple sensor windows.
     pub fn new() -> Self {
         let events_loop = glutin::EventsLoop::new();
         let context = glutin::ContextBuilder::new().with_vsync(true);
@@ -46,8 +45,8 @@ impl SensorWindow {
         // TODO: Query screen resolution so the window size isn't hardcoded.
         let builder = glutin::WindowBuilder::new()
             .with_dimensions(glutin::dpi::LogicalSize::new(1920f64, 1080f64));
-        let display = Display::new(builder, context, &events_loop)
-            .expect("Could not create display.");
+        let display =
+            Display::new(builder, context, &events_loop).expect("Could not create display.");
         let mut imgui = Context::create();
         imgui.set_ini_filename(None);
         let mut platform = WinitPlatform::init(&mut imgui);
@@ -77,8 +76,7 @@ impl SensorWindow {
 
         imgui.io_mut().font_global_scale = (1.0 / hidpi_factor) as f32;
 
-        let renderer = Renderer::init(&mut imgui, &display)
-            .expect("Failed to initialize renderer");
+        let renderer = Renderer::init(&mut imgui, &display).expect("Failed to initialize renderer");
 
         let config_windows: Vec<Box<dyn Modal>> = vec![
             Box::new(CameraConfig::new()),
@@ -99,9 +97,8 @@ impl SensorWindow {
         }
     }
 
-    /// Starts the rendering loop for the window. This will check for
-    /// any new data received from the sensors and update any windows
-    /// with new information.
+    /// Starts the rendering loop for the window. This will check for any new data received from
+    /// the sensors and update any windows with new information.
     pub fn render(self) {
         let SensorWindow {
             mut events_loop,
@@ -150,13 +147,9 @@ impl SensorWindow {
                     ],
                     10,
                 );
-                config_windows.iter_mut().for_each(|win| {
-                    win.render_modal(
-                        &ui,
-                        &mut join_handles,
-                        &mut sensor_windows,
-                    )
-                });
+                config_windows
+                    .iter_mut()
+                    .for_each(|win| win.render_modal(&ui, &mut join_handles, &mut sensor_windows));
                 if ui.button(im_str!("Configure sensor..."), [0.0, 0.0]) {
                     match selected_sensor {
                         0 => {
@@ -183,8 +176,8 @@ impl SensorWindow {
                 sensor_window.render(&ui, &display, &mut renderer);
             }
 
-            // Once all the sensor windows are created and update them, we can
-            // now draw them to the screen and start another iteration.
+            // Once all the sensor windows are created and update them, we can now draw them to
+            // the screen and start another iteration.
             let mut target = display.draw();
             target.clear_color_srgb(0.211, 0.223, 0.243, 1.0);
             platform.prepare_render(&ui, &window);

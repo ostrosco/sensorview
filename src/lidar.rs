@@ -31,10 +31,8 @@ impl Lidar {
         Self { sender }
     }
 
-    /// Starts a TCP listener to receive data from the LIDAR. This supports
-    /// multiple connections, though multiple connections aren't handled
-    /// correctly at the moment.
-    ///
+    /// Starts a TCP listener to receive data from the LIDAR. This supports multiple connections,
+    /// though multiple connections aren't handled correctly at the moment.
     pub fn start(mut self, ip: SocketAddr) -> JoinHandle<io::Result<()>> {
         thread::spawn(move || {
             let listener = TcpListener::bind(&ip).unwrap();
@@ -45,10 +43,7 @@ impl Lidar {
         })
     }
 
-    pub fn handle_lidar_stream(
-        &mut self,
-        mut stream: TcpStream,
-    ) -> io::Result<()> {
+    pub fn handle_lidar_stream(&mut self, mut stream: TcpStream) -> io::Result<()> {
         loop {
             let mut scan = Vec::new();
             let scan_size = stream.read_u32::<LittleEndian>()?;
@@ -88,23 +83,28 @@ impl LidarWindow {
 
 impl Renderable for LidarWindow {
     fn render(&mut self, ui: &Ui, display: &Display, renderer: &mut Renderer) {
-        // TODO: right now the scale factor is static to make it work. In the
-        // future, we should figure out a better way to handle the scale better.
+        // TODO: right now the scale factor is static to make it work. In the future, we should
+        // figure out a better way to handle the scale better.
         let scale = 0.03;
         let image_dim = 400.0;
         if let Ok(lidar_data) = self.receiver.try_recv() {
             self.lidar_data = lidar_data.distances;
             let mut image = RgbImage::new(image_dim as u32, image_dim as u32);
             let color = Rgb([255u8, 0u8, 0u8]);
+
+            // Draw a green dot in the center of the LIDAR display to represent the LIDAR.
+            let center_color = Rgb([0u8, 255u8, 0u8]);
+            let center = (image_dim / 2.0) as i32;
+            draw_filled_circle_mut(&mut image, (center, center), 2, center_color);
+
             for (angle, distance) in self.lidar_data.iter() {
+                // TODO: the zero point of the LIDAR is not what I expected, so the mount point is
+                // off by approximately 90 degrees. This corrects that error to make the LIDAR plot
+                // significantly more useable. This should probably be configurable.
+                let angle = (angle - 90.0) % 360.0;
                 let x = scale * distance * angle.cos() + image_dim / 2.0;
                 let y = image_dim / 2.0 - (distance * angle.sin()) * scale;
-                draw_filled_circle_mut(
-                    &mut image,
-                    (x as i32, y as i32),
-                    2,
-                    color,
-                );
+                draw_filled_circle_mut(&mut image, (x as i32, y as i32), 2, color);
             }
             let image_frame = Some(RawImage2d {
                 data: Cow::Owned(image.into_vec()),
@@ -118,15 +118,13 @@ impl Renderable for LidarWindow {
             if let Some(tex_id) = self.texture_id {
                 renderer.textures().replace(tex_id, Rc::new(gl_texture));
             } else {
-                self.texture_id =
-                    Some(renderer.textures().insert(Rc::new(gl_texture)));
+                self.texture_id = Some(renderer.textures().insert(Rc::new(gl_texture)));
             }
         }
 
-        // We call this each iteration of the CameraWindow, so we need to make
-        // sure we draw the window even if we didn't receive LIDAR data on
-        // this iteration. However, we currently do not draw a window unless
-        // we've received our first sample from the LIDAR.
+        // We call this each iteration of the LidarWindow, so we need to make sure we draw the
+        // window even if we didn't receive LIDAR data on this iteration. However, we currently
+        // do not draw a window unless we've received our first sample from the LIDAR.
         if let Some(tex_id) = self.texture_id {
             let image_dims = [image_dim, image_dim];
             Window::new(im_str!("LIDAR"))
